@@ -1,0 +1,14 @@
+[project]
+name = "cse-labbook"
+version = "0.1.0"
+description = "A labbook for all who run exploratory simulation experiments on HPC clusters."
+readme = "README.md"
+authors = [
+    { name = "Rico Häuselmann", email = "rico.haeuselmann@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = ["textual"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
