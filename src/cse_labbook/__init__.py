@@ -1,2 +1,1 @@
-def hello() -> str:
-    return "Hello from cse-labbook!"
+"""Lab book for computer simulation experiment projects."""
