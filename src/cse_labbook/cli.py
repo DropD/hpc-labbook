@@ -4,15 +4,15 @@ The labbook CLI.
 Commands:
 - init: create a new project
 """
+
 from __future__ import annotations
 
-import enum
 import dataclasses
+import enum
+import os
 import pathlib
 import subprocess
-import shlex
 import typing
-import os
 
 import click
 import typer
@@ -43,24 +43,42 @@ class ProjectPath(click.Path):
 
 class Site(enum.StrEnum):
     """Available sites."""
+
     CSCS = enum.auto()
 
 
 @dataclasses.dataclass
 class Uv:
+    """
+    Convenience wrapper around subprocess.run for running uv.
+
+    Depending on the env and cwd settings an instance can be constructed to run
+    outside projects (e.g. 'uv init') or inside projects (e.g. 'uv add', 'uv run').
+    """
+
     extra_env: dict[str, str] = dataclasses.field(default_factory=dict)
     cwd: pathlib.Path = dataclasses.field(default_factory=pathlib.Path)
 
-    def run(self, args: list[str], **opts: typing.Any) -> subprocess.CompletedProcess:
-        return subprocess.run(
-            ["uv", *args],
+    def run(
+        self: Self,
+        args: list[str],
+        **kwargs: typing.Any,  # noqa: ANN401  # just passing through
+    ) -> subprocess.CompletedProcess:
+        """Run 'uv *' as a sub process."""
+        return subprocess.run(  # noqa: S603  # No user input is to be run through this
+            ["uv", *args],  # noqa: S607  # If this is not safe, running the hpclb cli isn't either.
             env={"PATH": os.environ["PATH"]} | self.extra_env,
             cwd=self.cwd,
-            **opts
+            **kwargs,
         )
 
-    def runrun(self, args:list[str], **opts: typing.Any) -> subprocess.CompletedProcess:
-        return self.run(["run", *args], **opts)
+    def runrun(
+        self: Self,
+        args: list[str],
+        **kwargs: typing.Any,  # noqa: ANN401  # just passing through
+    ) -> subprocess.CompletedProcess:
+        """Run 'uv run *' as a sub process."""
+        return self.run(["run", *args], **kwargs)
 
 
 @app.command()
@@ -85,7 +103,7 @@ def init(
 
     config_file = path / "hpclb.yaml"
     aiida_dir = path / ".aiida"
-    loc_uv = Uv(extra_env = {"AIIDA_PATH": str(aiida_dir.absolute())}, cwd=path)
+    loc_uv = Uv(extra_env={"AIIDA_PATH": str(aiida_dir.absolute())}, cwd=path)
 
     config = {"name": name}
 
@@ -93,6 +111,8 @@ def init(
     config_file.write_text(yaml.safe_dump(config))
 
     print("-> adding self to project")
+    # TODO(ricoh): do not assume this is being run from the repo in the future
+    # https://app.radicle.xyz/nodes/seed.radicle.garden/rad:z29TKjG1H6TiU2DcMMads9y85yU7m/issues/2908d7840f65686208f4654654aa0e4b74121964
     hpclb_path = pathlib.Path(__file__).parent.parent.parent
     loc_uv.run(["add", str(hpclb_path)])
 
@@ -102,8 +122,10 @@ def init(
 
 
 def validate_cscs_site_dir_not_present(path: pathlib.Path) -> pathlib.Path:
+    """Check the path does not contain a 'cscs' subdirectory."""
     if (pathlib.Path(path) / "cscs").exists():
-        raise typer.Exit("site 'cscs' already present.")
+        msg = "site 'cscs' already present."
+        raise typer.Exit(msg)
     return path
 
 
@@ -112,28 +134,44 @@ def cscs(
     path: Annotated[
         pathlib.Path,
         typer.Argument(
-            file_okay=False, dir_okay=True, writable=True, parser=validate_cscs_site_dir_not_present
+            file_okay=False,
+            dir_okay=True,
+            writable=True,
+            parser=validate_cscs_site_dir_not_present,
         ),
     ],
-    work_path: Annotated[pathlib.Path, typer.Option(prompt=True, exists=False, file_okay=False, dir_okay=True)],
-):
+    work_path: Annotated[
+        pathlib.Path,
+        typer.Option(
+            prompt=True,
+            exists=False,
+            file_okay=False,
+            dir_okay=True,
+            help=(
+                "By default hpclb will create a subdirectory "
+                "in this location to contain all it's work."
+            ),
+        ),
+    ] = pathlib.Path("/capstor/scratch/{username}"),
+) -> None:
     """Add support for running on CSCS ALPS."""
     config_file = path / "hpclb.yaml"
     config = yaml.safe_load(config_file.read_text())
-    config.setdefault("sites", []).append("cscs") 
+    config.setdefault("sites", []).append("cscs")
 
     aiida_dir = path / ".aiida"
-    loc_uv = Uv(extra_env = {"AIIDA_PATH": str(aiida_dir.absolute())}, cwd=path)
+    loc_uv = Uv(extra_env={"AIIDA_PATH": str(aiida_dir.absolute())}, cwd=path)
     site_dir = path / "cscs"
-    # TODO(ricoh): split out into an entry point interface or command group
 
     print("-> preparing compute resource descriptions for site: CSCS")
     site_dir.mkdir()
 
-    # TODO(ricoh): setup and possibly configure clusters
-    # run verdi with "AIIDA_PATH" set to the project dir
-    loc_uv.run(["add", "aiida-firecrest @ git+https://github.com/aiidateam/aiida-firecrest.git"])
-    # TODO(ricoh): do not assume this is being run from the repo in the future
+    loc_uv.run(
+        [
+            "add",
+            "aiida-firecrest @ git+https://github.com/aiidateam/aiida-firecrest.git",
+        ]
+    )
     fcurls = {
         "santis": "https://api.svc.cscs.ch/cs/firecrest/v2",
         "daint": "https://api.svc.cscs.ch/hpc/firecrest/v2",
@@ -141,29 +179,39 @@ def cscs(
     }
     for vcluster in ["santis", "daint", "clariden"]:
         setup = site_dir / f"{vcluster}.setup.yaml"
-        setup.write_text(yaml.safe_dump({
-            "append_text": "",
-            "default_memory_per_machine": 128000000,
-            "description": vcluster,
-            "hostname": f"{vcluster}.cscs.ch",
-            "label": vcluster,
-            "mpiprocs_per_machine": 72,
-            "mpirun_command": f"srun -n {{tot_num_mpiprocs}} --ntasks-per-node {{num_mpiprocs_per_machine}}",
-            "prepend_text": "",
-            "scheduler": "firecrest",
-            "shebang": "#!/bin/bash -l",
-            "transport": "firecrest",
-            "use_double_quotes": False,
-            "work_dir": f"{work_path}/hpclb/work"
-        }))
+        setup.write_text(
+            yaml.safe_dump(
+                {
+                    "append_text": "",
+                    "default_memory_per_machine": 128000000,
+                    "description": vcluster,
+                    "hostname": f"{vcluster}.cscs.ch",
+                    "label": vcluster,
+                    "mpiprocs_per_machine": 72,
+                    "mpirun_command": (
+                        "srun -n {tot_num_mpiprocs} "
+                        "--ntasks-per-node {num_mpiprocs_per_machine}"
+                    ),
+                    "prepend_text": "",
+                    "scheduler": "firecrest",
+                    "shebang": "#!/bin/bash -l",
+                    "transport": "firecrest",
+                    "use_double_quotes": False,
+                    "work_dir": str(work_path / "hpclb" / "work"),
+                }
+            )
+        )
         config = site_dir / f"{vcluster}.config.yaml"
-        config.write_text(yaml.safe_dump({
-            "compute_resource": vcluster,
-            "temp_directory": f"{work_path}/hpclb/f7temp",
-            "token_uri": "https://auth.cscs.ch/auth/realms/firecrest-clients/protocol/openid-connect/token",
-            "url": fcurls[vcluster]
-        }))
-        loc_uv.runrun([
-            "verdi", "computer", "setup", "-n", "--config",
-            str(setup.absolute())
-        ])
+        config.write_text(
+            yaml.safe_dump(
+                {
+                    "compute_resource": vcluster,
+                    "temp_directory": str(work_path / "hpclb" / "f7temp"),
+                    "token_uri": "https://auth.cscs.ch/auth/realms/firecrest-clients/protocol/openid-connect/token",
+                    "url": fcurls[vcluster],
+                }
+            )
+        )
+        loc_uv.runrun(
+            ["verdi", "computer", "setup", "-n", "--config", str(setup.absolute())]
+        )
