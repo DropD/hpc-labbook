@@ -81,6 +81,14 @@ class Uv:
         return self.run(["run", *args], **kwargs)
 
 
+def get_self_depstring() -> str:
+    """Return the package name, or top level file url if installed editably."""
+    this_file = pathlib.Path(__file__)
+    if this_file.parent.parent.name == "site-packages":
+        return __package__ or "cse_labbook"
+    return str(this_file.parent.parent.parent.absolute())
+
+
 @app.command()
 def init(
     path: Annotated[
@@ -99,7 +107,7 @@ def init(
 
     print("-> setting up the uv project")
     if not (path / "pyproject.toml").exists():
-        glob_uv.run(["init", "--no-package", str(path)])
+        glob_uv.run(["init", "--no-workspace", "--no-package", str(path)])
 
     config_file = path / "hpclb.yaml"
     aiida_dir = path / ".aiida"
@@ -111,10 +119,7 @@ def init(
     config_file.write_text(yaml.safe_dump(config))
 
     print("-> adding self to project")
-    # TODO(ricoh): do not assume this is being run from the repo in the future
-    # https://app.radicle.xyz/nodes/seed.radicle.garden/rad:z29TKjG1H6TiU2DcMMads9y85yU7m/issues/2908d7840f65686208f4654654aa0e4b74121964
-    hpclb_path = pathlib.Path(__file__).parent.parent.parent
-    loc_uv.run(["add", str(hpclb_path)])
+    loc_uv.run(["add", get_self_depstring()])
 
     print("-> setting up basic AiiDA profile")
     loc_uv.run(["add", "aiida-core"])
