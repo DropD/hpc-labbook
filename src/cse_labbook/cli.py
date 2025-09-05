@@ -12,6 +12,7 @@ import enum
 import os
 import pathlib
 import subprocess
+import textwrap
 import typing
 
 import click
@@ -21,6 +22,7 @@ from typing_extensions import Annotated, Self
 
 app = typer.Typer()
 app.add_typer(add_site := typer.Typer(), name="add-site")
+app.add_typer(auth_site := typer.Typer(), name="auth-site")
 
 
 class ProjectPath(click.Path):
@@ -126,16 +128,26 @@ def init(
     loc_uv.runrun(["verdi", "presto"])
 
 
+def validate_is_project(path: pathlib.Path) -> pathlib.Path:
+    config_file = pathlib.Path(path) / "hpclb.yaml"
+    if not config_file.exists:
+        msg = f"{path} is not a hpclb project."
+        raise typer.Exit(msg)
+    return path
+
+
 def validate_cscs_site_dir_not_present(path: pathlib.Path) -> pathlib.Path:
     """Check the path does not contain a 'cscs' subdirectory."""
-    if (pathlib.Path(path) / "cscs").exists():
+    path = validate_is_project(path)
+
+    if (path / "cscs").exists():
         msg = "site 'cscs' already present."
         raise typer.Exit(msg)
     return path
 
 
-@add_site.command()
-def cscs(
+@add_site.command("cscs")
+def cscs_add(
     path: Annotated[
         pathlib.Path,
         typer.Argument(
@@ -206,7 +218,7 @@ def cscs(
                 }
             )
         )
-        config = site_dir / f"{vcluster}.config.yaml"
+        config = site_dir / f"{vcluster}.auth.yaml"
         config.write_text(
             yaml.safe_dump(
                 {
@@ -220,3 +232,89 @@ def cscs(
         loc_uv.runrun(
             ["verdi", "computer", "setup", "-n", "--config", str(setup.absolute())]
         )
+
+
+def validate_f7t_app_exists(value: bool) -> bool:
+    """Exit with a helpful message if user has no firecrest app."""
+    if not value:
+        msg = print(textwrap.dedent(
+            """
+            You will need a FirecREST application set up to access CSCS ALPS vClusters.
+            - Get started: https://docs.cscs.ch/services/devportal/#getting-started
+            - Learn more about FirecREST: https://docs.cscs.ch/access/firecrest/
+            """
+        ))
+        raise typer.Exit(msg)
+
+    return value
+
+
+def validate_cscs_site_dir_present(path: pathlib.Path) -> pathlib.Path:
+    """Check the path does not contain a 'cscs' subdirectory."""
+    path = validate_is_project(path)
+
+    if not (path / "cscs").exists():
+        msg = f"site 'cscs' not added yet, add it with 'hpclb add-site cscs {path}'."
+        raise typer.Exit(msg)
+    return path
+
+
+class VCluster(enum.StrEnum):
+    CLARIDEN = enum.auto()
+    DAINT = enum.auto()
+    SANTIS = enum.auto()
+
+
+@auth_site.command("cscs")
+def cscs_auth(
+    path: Annotated[
+        pathlib.Path,
+        typer.Argument(
+            file_okay=False,
+            dir_okay=True,
+            writable=True,
+            parser=validate_cscs_site_dir_present,
+        ),
+    ],
+    firecrest: Annotated[
+        bool, typer.Option(
+            prompt="Do you have an existing FirecREST application?",
+            help="Do you have an existing FirecREST application?",
+            parser=validate_f7t_app_exists,
+        )
+    ],
+    vcluster: Annotated[
+        list[VCluster], typer.Option()
+    ],
+    client_id: Annotated[str, typer.Option()],
+    client_secret: Annotated[str, typer.Option()],
+    billing_account: Annotated[str, typer.Option()],
+) -> None:
+    """Authenticate to CSCS via FirecREST."""
+    if not firecrest:
+        raise ValueError
+
+    site_dir = path / "cscs"
+    aiida_dir = path / ".aiida"
+
+    loc_uv = Uv(extra_env={"AIIDA_PATH": str(aiida_dir.absolute())}, cwd=path)
+
+    for vc in vcluster:
+        config_file = site_dir / f"{vc.value.lower()}.auth.yaml"
+        loc_uv.runrun([
+            "verdi",
+            "computer",
+            "configure",
+            "firecrest",
+            vc.value.lower(),
+            "-n",
+            "--config",
+            str(config_file.absolute()),
+            "--client-id",
+            client_id,
+            "--client-secret",
+            client_secret,
+            "--billing-account",
+            billing_account
+        ])
+        loc_uv.runrun(["verdi", "computer", "test", vc.value.lower()])
