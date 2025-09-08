@@ -14,15 +14,26 @@ import pathlib
 import subprocess
 import textwrap
 import typing
+import uuid
 
 import click
+import platformdirs
 import typer
 import yaml
 from typing_extensions import Annotated, Self
 
+USER_DATA_DIR = pathlib.Path(platformdirs.user_data_dir("hpclb", "ricoh"))
+
 app = typer.Typer()
 app.add_typer(add_site := typer.Typer(), name="add-site")
 app.add_typer(auth_site := typer.Typer(), name="auth-site")
+
+
+def get_user_data_dir() -> pathlib.Path:
+    """Retrieve data dir, ensuring it exists."""
+    if not USER_DATA_DIR.exists():
+        USER_DATA_DIR.mkdir(parents=True)
+    return USER_DATA_DIR
 
 
 class ProjectPath(click.Path):
@@ -67,6 +78,8 @@ class Uv:
         **kwargs: typing.Any,  # noqa: ANN401  # just passing through
     ) -> subprocess.CompletedProcess:
         """Run 'uv *' as a sub process."""
+        kwargs.setdefault("stdout", subprocess.PIPE)
+        kwargs.setdefault("stderr", subprocess.PIPE)
         return subprocess.run(  # noqa: S603  # No user input is to be run through this
             ["uv", *args],  # noqa: S607  # If this is not safe, running the hpclb cli isn't either.
             env={"PATH": os.environ["PATH"]} | self.extra_env,
@@ -107,28 +120,30 @@ def init(
 
     glob_uv = Uv()
 
-    print("-> setting up the uv project")
+    print(f"Initializing new project '{name}' in {path}")
+    print(" - setting up a python environment")
     if not (path / "pyproject.toml").exists():
         glob_uv.run(["init", "--no-workspace", "--no-package", str(path)])
 
+    print(" - writing the initial hpclb config")
     config_file = path / "hpclb.yaml"
     aiida_dir = path / ".aiida"
     loc_uv = Uv(extra_env={"AIIDA_PATH": str(aiida_dir.absolute())}, cwd=path)
 
     config = {"name": name}
 
-    print("-> writing config file")
     config_file.write_text(yaml.safe_dump(config))
 
-    print("-> adding self to project")
+    print(" - adding minimum python dependencies")
     loc_uv.run(["add", get_self_depstring()])
 
-    print("-> setting up basic AiiDA profile")
+    print(" - setting up the AiiDA profile")
     loc_uv.run(["add", "aiida-core"])
     loc_uv.runrun(["verdi", "presto"])
 
 
 def validate_is_project(path: pathlib.Path) -> pathlib.Path:
+    """Check the path contains a project config file."""
     config_file = pathlib.Path(path) / "hpclb.yaml"
     if not config_file.exists:
         msg = f"{path} is not a hpclb project."
@@ -140,7 +155,7 @@ def validate_cscs_site_dir_not_present(path: pathlib.Path) -> pathlib.Path:
     """Check the path does not contain a 'cscs' subdirectory."""
     path = validate_is_project(path)
 
-    if (path / "cscs").exists():
+    if (pathlib.Path(path) / "cscs").exists():
         msg = "site 'cscs' already present."
         raise typer.Exit(msg)
     return path
@@ -157,6 +172,7 @@ def cscs_add(
             parser=validate_cscs_site_dir_not_present,
         ),
     ],
+    username: Annotated[str, typer.Option(prompt=True)],
     work_path: Annotated[
         pathlib.Path,
         typer.Option(
@@ -169,18 +185,23 @@ def cscs_add(
                 "in this location to contain all it's work."
             ),
         ),
-    ] = pathlib.Path("/capstor/scratch/{username}"),
+    ] = pathlib.Path("/capstor/scratch/cscs/{username}"),
 ) -> None:
     """Add support for running on CSCS ALPS."""
     config_file = path / "hpclb.yaml"
     config = yaml.safe_load(config_file.read_text())
-    config.setdefault("sites", []).append("cscs")
+    config.setdefault("sites", {})["cscs"] = {"docs": "https://docs.cscs.ch"}
+    print(f"adding compute site CSCS to project '{config['name']}'")
+    print(" - updating config")
+    config_file.write_text(yaml.safe_dump(config))
+
+    work_path = pathlib.Path(str(work_path).format(username=username))
 
     aiida_dir = path / ".aiida"
     loc_uv = Uv(extra_env={"AIIDA_PATH": str(aiida_dir.absolute())}, cwd=path)
     site_dir = path / "cscs"
 
-    print("-> preparing compute resource descriptions for site: CSCS")
+    print(" - preparing compute resource descriptions")
     site_dir.mkdir()
 
     loc_uv.run(
@@ -190,11 +211,13 @@ def cscs_add(
         ]
     )
     fcurls = {
-        "santis": "https://api.svc.cscs.ch/cs/firecrest/v2",
-        "daint": "https://api.svc.cscs.ch/hpc/firecrest/v2",
-        "clariden": "https://api.svc.cscs.ch/ml/firecrest/v2",
+        "santis": "https://api.cscs.ch/cw/firecrest/v2",
+        "daint": "https://api.cscs.ch/hpc/firecrest/v2",
+        "clariden": "https://api.cscs.ch/ml/firecrest/v2",
     }
-    for vcluster in ["santis", "daint", "clariden"]:
+    vclusters = ["clariden", "daint", "santis"]
+    print(f" - adding compute resources {vclusters} to AiiDA")
+    for vcluster in vclusters:
         setup = site_dir / f"{vcluster}.setup.yaml"
         setup.write_text(
             yaml.safe_dump(
@@ -232,18 +255,24 @@ def cscs_add(
         loc_uv.runrun(
             ["verdi", "computer", "setup", "-n", "--config", str(setup.absolute())]
         )
+    print(
+        "Ready to authenticate to your CSCS "
+        "compute resources with 'hpclb auth-site cscs'"
+    )
 
 
 def validate_f7t_app_exists(value: bool) -> bool:
     """Exit with a helpful message if user has no firecrest app."""
     if not value:
-        msg = print(textwrap.dedent(
-            """
+        msg = print(
+            textwrap.dedent(
+                """
             You will need a FirecREST application set up to access CSCS ALPS vClusters.
             - Get started: https://docs.cscs.ch/services/devportal/#getting-started
             - Learn more about FirecREST: https://docs.cscs.ch/access/firecrest/
             """
-        ))
+            )
+        )
         raise typer.Exit(msg)
 
     return value
@@ -253,13 +282,15 @@ def validate_cscs_site_dir_present(path: pathlib.Path) -> pathlib.Path:
     """Check the path does not contain a 'cscs' subdirectory."""
     path = validate_is_project(path)
 
-    if not (path / "cscs").exists():
+    if not (pathlib.Path(path) / "cscs").exists():
         msg = f"site 'cscs' not added yet, add it with 'hpclb add-site cscs {path}'."
         raise typer.Exit(msg)
     return path
 
 
 class VCluster(enum.StrEnum):
+    """ALPS vClusters."""
+
     CLARIDEN = enum.auto()
     DAINT = enum.auto()
     SANTIS = enum.auto()
@@ -277,44 +308,89 @@ def cscs_auth(
         ),
     ],
     firecrest: Annotated[
-        bool, typer.Option(
+        bool,
+        typer.Option(
             prompt="Do you have an existing FirecREST application?",
             help="Do you have an existing FirecREST application?",
             parser=validate_f7t_app_exists,
-        )
+        ),
     ],
-    vcluster: Annotated[
-        list[VCluster], typer.Option()
-    ],
-    client_id: Annotated[str, typer.Option()],
-    client_secret: Annotated[str, typer.Option()],
-    billing_account: Annotated[str, typer.Option()],
+    vcluster: Annotated[list[VCluster], typer.Option(default_factory=list)],
+    client_id: Annotated[str, typer.Option(prompt=True)],
+    client_secret: Annotated[str, typer.Option(prompt=True)],
+    billing_account: Annotated[str, typer.Option(prompt=True)],
 ) -> None:
     """Authenticate to CSCS via FirecREST."""
     if not firecrest:
         raise ValueError
+
+    project_file = path / "hpclb.yaml"
+    project_config = yaml.safe_load(project_file.read_text())
+    print(f"Authenticating to compute site CSCS for project '{project_config['name']}'")
 
     site_dir = path / "cscs"
     aiida_dir = path / ".aiida"
 
     loc_uv = Uv(extra_env={"AIIDA_PATH": str(aiida_dir.absolute())}, cwd=path)
 
+    if not vcluster:
+        vcluster_str = typer.prompt(
+            "Comma separated list of vclusters ('clariden', 'daint', 'santis') or"
+            " 'all' ['all']"
+        )
+        if vcluster_str == "all":
+            vcluster = [VCluster.CLARIDEN, VCluster.DAINT, VCluster.SANTIS]
+        else:
+            vcluster = [
+                VCluster.__members__[name.strip().upper()]
+                for name in vcluster_str.split(",")
+            ]
+
+    auth_id = uuid.uuid4().hex
+    secret_file = get_user_data_dir() / f"{auth_id}.f7t"
+    current_auth = {
+        "client_id": client_id,
+        "billing_account": billing_account,
+        "client_secret": str(secret_file),
+    }
+
+    machines = project_config["sites"]["cscs"].setdefault("machines", {})
+    retcodes = []
     for vc in vcluster:
+        print(f" - authenticating to {vc.value.lower()}")
         config_file = site_dir / f"{vc.value.lower()}.auth.yaml"
-        loc_uv.runrun([
-            "verdi",
-            "computer",
-            "configure",
-            "firecrest",
-            vc.value.lower(),
-            "-n",
-            "--config",
-            str(config_file.absolute()),
-            "--client-id",
-            client_id,
-            "--client-secret",
-            client_secret,
-            "--billing-account",
-            billing_account
-        ])
-        loc_uv.runrun(["verdi", "computer", "test", vc.value.lower()])
+        config_proc = loc_uv.runrun(
+            [
+                "verdi",
+                "computer",
+                "configure",
+                "firecrest",
+                vc.value.lower(),
+                "-n",
+                "--config",
+                str(config_file.absolute()),
+                "--client-id",
+                client_id,
+                "--client-secret",
+                client_secret,
+                "--billing-account",
+                billing_account,
+            ]
+        )
+        retcodes.append(config_proc.returncode)
+        if config_proc.returncode != 0:
+            print("Something went wrong authenticating to {vc}. See ouptut below:\n")
+            print(config_proc.stdout)
+        else:
+            machines.setdefault(vc.value.lower(), {})["auth"] = auth_id
+
+        loc_uv.runrun(
+            ["verdi", "computer", "test", vc.value.lower()], stdout=None, stderr=None
+        )
+
+    print(" - updating project config")
+    if any(rc == 0 for rc in retcodes):
+        auths = project_config["sites"]["cscs"].setdefault("auths", {})
+        auths[auth_id] = current_auth
+        project_file.write_text(yaml.dump(project_config))
+        secret_file.write_text(client_secret)
