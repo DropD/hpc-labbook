@@ -3,15 +3,14 @@ The labbook CLI.
 
 Commands:
 - init: create a new project
+- add-site: add infrastructure for a compute site (only CSCS included)
+- auth-site: authenticate to a compute site's resources
 """
 
 from __future__ import annotations
 
-import dataclasses
 import enum
-import os
 import pathlib
-import subprocess
 import textwrap
 import typing
 import uuid
@@ -21,6 +20,14 @@ import platformdirs
 import typer
 import yaml
 from typing_extensions import Annotated, Self
+
+from cse_labbook import cli_tools as ct
+
+if typing.TYPE_CHECKING:
+    import os
+
+
+__all__ = ["Site", "VCluster", "app", "get_user_data_dir"]
 
 USER_DATA_DIR = pathlib.Path(platformdirs.user_data_dir("hpclb", "ricoh"))
 
@@ -42,10 +49,14 @@ class ProjectPath(click.Path):
     name = "HPCLBProjectPath"
 
     def convert(
-        self: Self, value: str, param: click.ParamType, ctx: click.Context
+        self: Self,
+        value: str | os.PathLike[str],
+        param: click.Parameter | None,
+        ctx: click.Context | None,
     ) -> pathlib.Path:
         """Check for presence of project file on tope of path validation."""
-        result = pathlib.Path(super().convert(value, param, ctx))
+        _ = super().convert(value, param, ctx)
+        result = pathlib.Path(value)
 
         config_file = result / "hpclb.yaml"
         if result.exists() and config_file in result.iterdir():
@@ -60,42 +71,6 @@ class Site(enum.StrEnum):
     CSCS = enum.auto()
 
 
-@dataclasses.dataclass
-class Uv:
-    """
-    Convenience wrapper around subprocess.run for running uv.
-
-    Depending on the env and cwd settings an instance can be constructed to run
-    outside projects (e.g. 'uv init') or inside projects (e.g. 'uv add', 'uv run').
-    """
-
-    extra_env: dict[str, str] = dataclasses.field(default_factory=dict)
-    cwd: pathlib.Path = dataclasses.field(default_factory=pathlib.Path)
-
-    def run(
-        self: Self,
-        args: list[str],
-        **kwargs: typing.Any,  # noqa: ANN401  # just passing through
-    ) -> subprocess.CompletedProcess:
-        """Run 'uv *' as a sub process."""
-        kwargs.setdefault("stdout", subprocess.PIPE)
-        kwargs.setdefault("stderr", subprocess.PIPE)
-        return subprocess.run(  # noqa: S603  # No user input is to be run through this
-            ["uv", *args],  # noqa: S607  # If this is not safe, running the hpclb cli isn't either.
-            env={"PATH": os.environ["PATH"]} | self.extra_env,
-            cwd=self.cwd,
-            **kwargs,
-        )
-
-    def runrun(
-        self: Self,
-        args: list[str],
-        **kwargs: typing.Any,  # noqa: ANN401  # just passing through
-    ) -> subprocess.CompletedProcess:
-        """Run 'uv run *' as a sub process."""
-        return self.run(["run", *args], **kwargs)
-
-
 def get_self_depstring() -> str:
     """Return the package name, or top level file url if installed editably."""
     this_file = pathlib.Path(__file__)
@@ -107,7 +82,7 @@ def get_self_depstring() -> str:
 @app.command()
 def init(
     path: Annotated[
-        ProjectPath,
+        pathlib.Path,
         typer.Argument(
             click_type=ProjectPath(file_okay=False, dir_okay=True, writable=True)
         ),
@@ -118,36 +93,33 @@ def init(
     if not path.exists():
         path.mkdir(parents=True)
 
-    glob_uv = Uv()
+    uv = ct.Uv(project=path)
 
     print(f"Initializing new project '{name}' in {path}")
     print(" - setting up a python environment")
     if not (path / "pyproject.toml").exists():
-        glob_uv.run(["init", "--no-workspace", "--no-package", str(path)])
-
+        uv.init()
     print(" - writing the initial hpclb config")
     config_file = path / "hpclb.yaml"
-    aiida_dir = path / ".aiida"
-    loc_uv = Uv(extra_env={"AIIDA_PATH": str(aiida_dir.absolute())}, cwd=path)
 
     config = {"name": name}
 
     config_file.write_text(yaml.safe_dump(config))
 
     print(" - adding minimum python dependencies")
-    loc_uv.run(["add", get_self_depstring()])
+    uv.add([get_self_depstring()])
 
     print(" - setting up the AiiDA profile")
-    loc_uv.run(["add", "aiida-core"])
-    loc_uv.runrun(["verdi", "presto"])
+    uv.add(["aiida-core"])
+    ct.Verdi(project=path)(["presto"])
 
 
 def validate_is_project(path: pathlib.Path) -> pathlib.Path:
     """Check the path contains a project config file."""
     config_file = pathlib.Path(path) / "hpclb.yaml"
-    if not config_file.exists:
-        msg = f"{path} is not a hpclb project."
-        raise typer.Exit(msg)
+    if not config_file.exists():
+        print(f"{path} is not a hpclb project.")
+        raise typer.Exit(code=1)
     return path
 
 
@@ -156,8 +128,8 @@ def validate_cscs_site_dir_not_present(path: pathlib.Path) -> pathlib.Path:
     path = validate_is_project(path)
 
     if (pathlib.Path(path) / "cscs").exists():
-        msg = "site 'cscs' already present."
-        raise typer.Exit(msg)
+        print("site 'cscs' already present.")
+        raise typer.Exit(code=1)
     return path
 
 
@@ -197,16 +169,15 @@ def cscs_add(
 
     work_path = pathlib.Path(str(work_path).format(username=username))
 
-    aiida_dir = path / ".aiida"
-    loc_uv = Uv(extra_env={"AIIDA_PATH": str(aiida_dir.absolute())}, cwd=path)
+    uv = ct.Uv(project=path)
+    verdi = ct.Verdi(project=path)
     site_dir = path / "cscs"
 
     print(" - preparing compute resource descriptions")
     site_dir.mkdir()
 
-    loc_uv.run(
+    uv.add(
         [
-            "add",
             "aiida-firecrest @ git+https://github.com/aiidateam/aiida-firecrest.git",
         ]
     )
@@ -252,9 +223,7 @@ def cscs_add(
                 }
             )
         )
-        loc_uv.runrun(
-            ["verdi", "computer", "setup", "-n", "--config", str(setup.absolute())]
-        )
+        verdi(["computer", "setup", "-n", "--config", str(setup.absolute())])
     print(
         "Ready to authenticate to your CSCS "
         "compute resources with 'hpclb auth-site cscs'"
@@ -264,7 +233,7 @@ def cscs_add(
 def validate_f7t_app_exists(value: bool) -> bool:
     """Exit with a helpful message if user has no firecrest app."""
     if not value:
-        msg = print(
+        print(
             textwrap.dedent(
                 """
             You will need a FirecREST application set up to access CSCS ALPS vClusters.
@@ -273,7 +242,7 @@ def validate_f7t_app_exists(value: bool) -> bool:
             """
             )
         )
-        raise typer.Exit(msg)
+        raise typer.Exit(code=0)
 
     return value
 
@@ -283,8 +252,8 @@ def validate_cscs_site_dir_present(path: pathlib.Path) -> pathlib.Path:
     path = validate_is_project(path)
 
     if not (pathlib.Path(path) / "cscs").exists():
-        msg = f"site 'cscs' not added yet, add it with 'hpclb add-site cscs {path}'."
-        raise typer.Exit(msg)
+        print(f"site 'cscs' not added yet, add it with 'hpclb add-site cscs {path}'.")
+        raise typer.Exit(code=1)
     return path
 
 
@@ -329,9 +298,8 @@ def cscs_auth(
     print(f"Authenticating to compute site CSCS for project '{project_config['name']}'")
 
     site_dir = path / "cscs"
-    aiida_dir = path / ".aiida"
 
-    loc_uv = Uv(extra_env={"AIIDA_PATH": str(aiida_dir.absolute())}, cwd=path)
+    verdi = ct.Verdi(project=path)
 
     if not vcluster:
         vcluster_str = typer.prompt(
@@ -359,9 +327,8 @@ def cscs_auth(
     for vc in vcluster:
         print(f" - authenticating to {vc.value.lower()}")
         config_file = site_dir / f"{vc.value.lower()}.auth.yaml"
-        config_proc = loc_uv.runrun(
+        config_proc = verdi(
             [
-                "verdi",
                 "computer",
                 "configure",
                 "firecrest",
@@ -379,14 +346,12 @@ def cscs_auth(
         )
         retcodes.append(config_proc.returncode)
         if config_proc.returncode != 0:
-            print("Something went wrong authenticating to {vc}. See ouptut below:\n")
+            print(f"Something went wrong authenticating to {vc}. See ouptut below:\n")
             print(config_proc.stdout)
         else:
             machines.setdefault(vc.value.lower(), {})["auth"] = auth_id
 
-        loc_uv.runrun(
-            ["verdi", "computer", "test", vc.value.lower()], stdout=None, stderr=None
-        )
+        verdi(["computer", "test", vc.value.lower()], stdout=None, stderr=None)
 
     print(" - updating project config")
     if any(rc == 0 for rc in retcodes):

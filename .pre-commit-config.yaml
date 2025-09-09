@@ -1,0 +1,64 @@
+default_language_version:
+  python: python3.12
+
+repos:
+- repo: https://github.com/macisamuele/language-formatters-pre-commit-hooks
+  rev: v2.14.0
+  hooks:
+  - id: pretty-format-toml
+    args: [--autofix]
+  - id: pretty-format-yaml
+    args: [--autofix, --preserve-quotes, --indent, "2"]
+
+- repo: https://github.com/pre-commit/mirrors-prettier
+  rev: v4.0.0-alpha.8
+  hooks:
+  - id: prettier
+    types_or: [markdown, json]
+
+- repo: https://github.com/pre-commit/pre-commit-hooks
+  rev: v5.0.0
+  hooks:
+  - id: check-case-conflict
+  - id: check-merge-conflict
+  - id: check-toml
+  - id: check-yaml
+  - id: debug-statements
+
+- repo: https://github.com/zizmorcore/zizmor-pre-commit
+  rev: v1.11.0
+  hooks:
+  - id: zizmor
+
+- repo: local
+  hooks:
+  - id: format
+    stages: [pre-commit]
+    name: format
+    entry: uv run ruff format
+    language: system
+    types: [python]
+    exclude: |
+      (?x)^(
+      examples/.*
+      )$
+  - id: lint
+    stages: [pre-commit]
+    name: lint
+    entry: uv run ruff check --fix
+    language: system
+    types: [python]
+    exclude: |
+      (?x)^(
+      examples/.*
+      )$
+  - id: types
+    stages: [pre-commit]
+    name: types
+    entry: uv run mypy
+    language: system
+    types: [python]
+    exclude: |
+      (?x)^(
+      examples/.*
+      )$
