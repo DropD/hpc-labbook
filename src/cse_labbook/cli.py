@@ -21,14 +21,13 @@ import typer
 import yaml
 from typing_extensions import Annotated, Self
 
-from cse_labbook import cli_tools as ct
 from cse_labbook import project
 
 if typing.TYPE_CHECKING:
     import os
 
 
-__all__ = ["Site", "VCluster", "app", "get_user_data_dir"]
+__all__ = ["app", "get_user_data_dir"]
 
 USER_DATA_DIR = pathlib.Path(platformdirs.user_data_dir("hpclb", "ricoh"))
 
@@ -66,12 +65,6 @@ class ProjectPath(click.Path):
         return result
 
 
-class Site(enum.StrEnum):
-    """Available sites."""
-
-    CSCS = enum.auto()
-
-
 def get_self_depstring() -> str:
     """Return the package name, or top level file url if installed editably."""
     this_file = pathlib.Path(__file__)
@@ -91,26 +84,24 @@ def init(
     name: Annotated[str, typer.Option(prompt=True)],
 ) -> None:
     """Start a new computer simulation project labbook in PATH."""
-    new_project = project.Project(path)
-    if not new_project.path.exists():
-        new_project.path.mkdir(parents=True)
-
-    uv = ct.Uv(project=new_project.path)
+    this = project.Project(path)
+    if not this.path.exists():
+        this.path.mkdir(parents=True)
 
     print(f"Initializing new project '{name}' in {path}")
-    print(" - setting up a python environment")
     if not (path / "pyproject.toml").exists():
-        uv.init()
+        print(" - setting up a python environment")
+        this.uv.init()
     print(" - writing the initial hpclb config")
 
-    new_project.config = project.Config(name=name)
+    this.config = project.Config(name=name)
 
     print(" - adding minimum python dependencies")
-    uv.add([get_self_depstring()])
+    this.uv.add([get_self_depstring()])
 
     print(" - setting up the AiiDA profile")
-    uv.add(["aiida-core"])
-    ct.Verdi(project=path)(["presto"])
+    this.uv.add(["aiida-core"])
+    this.verdi(["presto"])
 
 
 def validate_is_project(path: pathlib.Path) -> pathlib.Path:
@@ -169,14 +160,11 @@ def cscs_add(
 
     work_path = pathlib.Path(str(work_path).format(username=username))
 
-    uv = ct.Uv(project=path)
-    verdi = ct.Verdi(project=path)
-
     print(" - preparing compute resource descriptions")
     cscs_dir = this.site_dir("cscs")
     cscs_dir.mkdir()
 
-    uv.add(
+    this.uv.add(
         [
             "aiida-firecrest @ git+https://github.com/aiidateam/aiida-firecrest.git",
         ]
@@ -223,7 +211,7 @@ def cscs_add(
                 }
             )
         )
-        verdi(["computer", "setup", "-n", "--config", str(setup.absolute())])
+        this.verdi(["computer", "setup", "-n", "--config", str(setup.absolute())])
     print(
         "Ready to authenticate to your CSCS "
         "compute resources with 'hpclb auth-site cscs'"
@@ -298,8 +286,6 @@ def cscs_auth(
     project_config = this.config
     print(f"Authenticating to compute site CSCS for project '{project_config.name}'")
 
-    verdi = ct.Verdi(project=this.path)
-
     if not vcluster:
         vcluster_str = typer.prompt(
             "Comma separated list of vclusters ('clariden', 'daint', 'santis') or"
@@ -326,7 +312,7 @@ def cscs_auth(
     for vc in vcluster:
         print(f" - authenticating to {vc.value.lower()}")
         config_file = this.site_dir("cscs") / f"{vc.value.lower()}.auth.yaml"
-        config_proc = verdi(
+        config_proc = this.verdi(
             [
                 "computer",
                 "configure",
@@ -350,7 +336,7 @@ def cscs_auth(
         else:
             machines[vc.value.lower()] = project.Machine(auth=auth_id)
 
-        verdi(["computer", "test", vc.value.lower()], stdout=None, stderr=None)
+        this.verdi(["computer", "test", vc.value.lower()], stdout=None, stderr=None)
 
     print(" - updating project config")
     if any(rc == 0 for rc in retcodes):

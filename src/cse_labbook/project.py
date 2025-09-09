@@ -9,6 +9,10 @@ import cattrs
 from cattrs.preconf.pyyaml import make_converter
 from typing_extensions import Self
 
+from cse_labbook import cli_tools as ct
+
+__all__ = ["Auth", "Config", "Machine", "Project", "Site"]
+
 
 @dataclasses.dataclass
 class Auth:
@@ -75,3 +79,13 @@ class Project:
     def site_dir(self: Self, name: str) -> pathlib.Path:
         """Find site infrastructure directory for a particular site in this project."""
         return self.path / name
+
+    @property
+    def uv(self: Self) -> ct.Uv:
+        """UV instance configured for this project."""
+        return ct.Uv(project=self.path)
+
+    @property
+    def verdi(self: Self) -> ct.Verdi:
+        """Verdi instance configured for this project."""
+        return ct.Verdi(project=self.path)

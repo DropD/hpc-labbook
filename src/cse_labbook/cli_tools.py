@@ -10,7 +10,7 @@ import typing
 
 from typing_extensions import Self
 
-__all__ = ["Uv"]
+__all__ = ["Uv", "Verdi"]
 
 
 class CliToolMixin:
@@ -87,17 +87,11 @@ class Uv(CliToolMixin):
     """
 
     project: pathlib.Path = dataclasses.field(default_factory=pathlib.Path)
-    extra_env: dict[str, str] = dataclasses.field(default_factory=dict)
 
     @property
     def name(self: Self) -> str:
         """The name for the 'uv' command."""
         return "uv"
-
-    @property
-    def env(self: Self) -> dict[str, str]:
-        """The default process env for this 'uv' instance."""
-        return super().env | self.extra_env
 
     @property
     def cwd(self: Self) -> pathlib.Path:
@@ -129,10 +123,16 @@ class Verdi(PythonCliTool):
 
     @property
     def name(self: Self) -> str:
+        """Name of the 'verdi' cli."""
         return "verdi"
 
     @property
     def env(self: Self) -> dict[str, str]:
+        """
+        Default environment for VERDI to run in.
+
+        This ensures the AIIDA_PATH is always set to the project's.
+        """
         return {"PATH": os.environ["PATH"]} | {
             "AIIDA_PATH": str((self.project / ".aiida").absolute())
         }
