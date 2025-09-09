@@ -22,6 +22,7 @@ import yaml
 from typing_extensions import Annotated, Self
 
 from cse_labbook import cli_tools as ct
+from cse_labbook import project
 
 if typing.TYPE_CHECKING:
     import os
@@ -90,21 +91,19 @@ def init(
     name: Annotated[str, typer.Option(prompt=True)],
 ) -> None:
     """Start a new computer simulation project labbook in PATH."""
-    if not path.exists():
-        path.mkdir(parents=True)
+    new_project = project.Project(path)
+    if not new_project.path.exists():
+        new_project.path.mkdir(parents=True)
 
-    uv = ct.Uv(project=path)
+    uv = ct.Uv(project=new_project.path)
 
     print(f"Initializing new project '{name}' in {path}")
     print(" - setting up a python environment")
     if not (path / "pyproject.toml").exists():
         uv.init()
     print(" - writing the initial hpclb config")
-    config_file = path / "hpclb.yaml"
 
-    config = {"name": name}
-
-    config_file.write_text(yaml.safe_dump(config))
+    new_project.config = project.Config(name=name)
 
     print(" - adding minimum python dependencies")
     uv.add([get_self_depstring()])
@@ -116,8 +115,8 @@ def init(
 
 def validate_is_project(path: pathlib.Path) -> pathlib.Path:
     """Check the path contains a project config file."""
-    config_file = pathlib.Path(path) / "hpclb.yaml"
-    if not config_file.exists():
+    proj = project.Project(pathlib.Path(path))
+    if not proj.config_file.exists():
         print(f"{path} is not a hpclb project.")
         raise typer.Exit(code=1)
     return path
@@ -126,8 +125,9 @@ def validate_is_project(path: pathlib.Path) -> pathlib.Path:
 def validate_cscs_site_dir_not_present(path: pathlib.Path) -> pathlib.Path:
     """Check the path does not contain a 'cscs' subdirectory."""
     path = validate_is_project(path)
+    proj = project.Project(pathlib.Path(path))
 
-    if (pathlib.Path(path) / "cscs").exists():
+    if proj.site_dir("cscs").exists():
         print("site 'cscs' already present.")
         raise typer.Exit(code=1)
     return path
@@ -160,21 +160,21 @@ def cscs_add(
     ] = pathlib.Path("/capstor/scratch/cscs/{username}"),
 ) -> None:
     """Add support for running on CSCS ALPS."""
-    config_file = path / "hpclb.yaml"
-    config = yaml.safe_load(config_file.read_text())
-    config.setdefault("sites", {})["cscs"] = {"docs": "https://docs.cscs.ch"}
-    print(f"adding compute site CSCS to project '{config['name']}'")
+    this = project.Project(path)
+    project_config = this.config
+    project_config.sites["cscs"] = project.Site(docs="https://docs.cscs.ch")
+    print(f"adding compute site CSCS to project '{project_config.name}'")
     print(" - updating config")
-    config_file.write_text(yaml.safe_dump(config))
+    this.config = project_config
 
     work_path = pathlib.Path(str(work_path).format(username=username))
 
     uv = ct.Uv(project=path)
     verdi = ct.Verdi(project=path)
-    site_dir = path / "cscs"
 
     print(" - preparing compute resource descriptions")
-    site_dir.mkdir()
+    cscs_dir = this.site_dir("cscs")
+    cscs_dir.mkdir()
 
     uv.add(
         [
@@ -189,7 +189,7 @@ def cscs_add(
     vclusters = ["clariden", "daint", "santis"]
     print(f" - adding compute resources {vclusters} to AiiDA")
     for vcluster in vclusters:
-        setup = site_dir / f"{vcluster}.setup.yaml"
+        setup = cscs_dir / f"{vcluster}.setup.yaml"
         setup.write_text(
             yaml.safe_dump(
                 {
@@ -212,7 +212,7 @@ def cscs_add(
                 }
             )
         )
-        config = site_dir / f"{vcluster}.auth.yaml"
+        config = cscs_dir / f"{vcluster}.auth.yaml"
         config.write_text(
             yaml.safe_dump(
                 {
@@ -250,8 +250,9 @@ def validate_f7t_app_exists(value: bool) -> bool:
 def validate_cscs_site_dir_present(path: pathlib.Path) -> pathlib.Path:
     """Check the path does not contain a 'cscs' subdirectory."""
     path = validate_is_project(path)
+    proj = project.Project(pathlib.Path(path))
 
-    if not (pathlib.Path(path) / "cscs").exists():
+    if not proj.site_dir("cscs").exists():
         print(f"site 'cscs' not added yet, add it with 'hpclb add-site cscs {path}'.")
         raise typer.Exit(code=1)
     return path
@@ -293,13 +294,11 @@ def cscs_auth(
     if not firecrest:
         raise ValueError
 
-    project_file = path / "hpclb.yaml"
-    project_config = yaml.safe_load(project_file.read_text())
-    print(f"Authenticating to compute site CSCS for project '{project_config['name']}'")
+    this = project.Project(path)
+    project_config = this.config
+    print(f"Authenticating to compute site CSCS for project '{project_config.name}'")
 
-    site_dir = path / "cscs"
-
-    verdi = ct.Verdi(project=path)
+    verdi = ct.Verdi(project=this.path)
 
     if not vcluster:
         vcluster_str = typer.prompt(
@@ -316,17 +315,17 @@ def cscs_auth(
 
     auth_id = uuid.uuid4().hex
     secret_file = get_user_data_dir() / f"{auth_id}.f7t"
-    current_auth = {
-        "client_id": client_id,
-        "billing_account": billing_account,
-        "client_secret": str(secret_file),
-    }
+    current_auth = project.Auth(
+        client_id=client_id,
+        billing_account=billing_account,
+        client_secret=str(secret_file),
+    )
 
-    machines = project_config["sites"]["cscs"].setdefault("machines", {})
+    machines = project_config.sites["cscs"].machines
     retcodes = []
     for vc in vcluster:
         print(f" - authenticating to {vc.value.lower()}")
-        config_file = site_dir / f"{vc.value.lower()}.auth.yaml"
+        config_file = this.site_dir("cscs") / f"{vc.value.lower()}.auth.yaml"
         config_proc = verdi(
             [
                 "computer",
@@ -349,13 +348,12 @@ def cscs_auth(
             print(f"Something went wrong authenticating to {vc}. See ouptut below:\n")
             print(config_proc.stdout)
         else:
-            machines.setdefault(vc.value.lower(), {})["auth"] = auth_id
+            machines[vc.value.lower()] = project.Machine(auth=auth_id)
 
         verdi(["computer", "test", vc.value.lower()], stdout=None, stderr=None)
 
     print(" - updating project config")
     if any(rc == 0 for rc in retcodes):
-        auths = project_config["sites"]["cscs"].setdefault("auths", {})
-        auths[auth_id] = current_auth
-        project_file.write_text(yaml.dump(project_config))
+        project_config.sites["cscs"].auths[auth_id] = current_auth
+        this.config = project_config
         secret_file.write_text(client_secret)
