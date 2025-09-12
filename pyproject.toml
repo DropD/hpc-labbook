@@ -41,6 +41,7 @@ select = ["E", "F", "B", "ERA", "ANN", "S", "BLE", "C4", "ICN", "PT", "Q", "RSE"
 
 [tool.uv]
 dev-dependencies = [
+  "aiida-core>=2.7.1",
   "ipython>=9.5.0",
   "mypy>=1.17.1",
   "pytest>=8.4.1",
