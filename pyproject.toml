@@ -20,6 +20,12 @@ readme = "README.md"
 requires-python = ">=3.12"
 version = "0.1.0"
 
+[project.entry-points."aiida.calculations"]
+"hpclb.generic" = "cse_labbook.aiida.calcjob:GenericCalculation"
+
+[project.entry-points."aiida.parsers"]
+"hpclb.generic" = "cse_labbook.aiida.calcjob:GenericParser"
+
 [project.scripts]
 hpclb = "cse_labbook.cli:app"
 
@@ -27,6 +33,15 @@ hpclb = "cse_labbook.cli:app"
 executionEnvironments = [{root = "src"}]
 venv = "types"
 venvPath = ".venv"
+
+[tool.pytest.ini_options]
+addopts = ["--doctest-modules"]
+filterwarnings = [
+  "ignore:Object of type .* not in session, .* operation along .* will not proceed:sqlalchemy.exc.SAWarning",
+  "ignore:There is no current event loop:DeprecationWarning:plumpy",
+  "ignore:Use 'content=<...>' to upload raw bytes/text content.:DeprecationWarning:httpx",
+  "ignore:Creating AiiDA configuration folder.*:UserWarning"
+]
 
 [tool.ruff]
 target-version = "py312"
@@ -39,11 +54,15 @@ quote-style = "double"
 ignore = ["D203", "D212"]
 select = ["E", "F", "B", "ERA", "ANN", "S", "BLE", "C4", "ICN", "PT", "Q", "RSE", "RET", "SIM", "TID", "TD", "ARG", "PTH", "FLY", "I", "C90", "N", "PERF", "D", "RUF", "TRY", "FURB"]
 
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101"]
+
 [tool.uv]
 dev-dependencies = [
   "aiida-core>=2.7.1",
   "ipython>=9.5.0",
   "mypy>=1.17.1",
+  "pre-commit>=4.3.0",
   "pytest>=8.4.1",
   "ruff>=0.12.11",
   "types-pyyaml>=6.0.12.20250822"

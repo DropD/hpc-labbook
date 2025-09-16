@@ -34,9 +34,9 @@ class GenericCalculation(engine.CalcJob):
         calcinfo = datastructures.CalcInfo()
         calcinfo.codes_info = [codeinfo]
 
-        data.create_dirs(target_dir=self.inputs.workdir, folder=folder)
+        data.create_dirs(target_dir=self.inputs.workdir.obj, folder=folder)
         upload, copy, link = data.create_triplets(
-            target_dir=self.inputs.workdir, calcjob=self
+            target_dir=self.inputs.workdir.obj, calcjob=self
         )
 
         calcinfo.local_copy_list = [(i.uuid, i.src_name, i.tgt_path) for i in upload]
@@ -46,8 +46,8 @@ class GenericCalculation(engine.CalcJob):
         return calcinfo
 
 
-class IconParser(parser.Parser):
-    """Parser for raw Icon calculations."""
+class GenericParser(parser.Parser):
+    """Parser for generic hpclb calculations."""
 
     def parse(self, **kwargs: typing.Any) -> engine.ExitCode:  # noqa: ARG002,ANN401  # kwargs must be there for superclass compatibility
         """Parse a retrieved calculation."""

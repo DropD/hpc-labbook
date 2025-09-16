@@ -14,7 +14,7 @@ if typing.TYPE_CHECKING:
     from aiida.common import folders
 
 
-__all__ = ["RemoteFile", "TargetDir", "UploadFile"]
+__all__ = ["RemotePath", "TargetDir", "UploadFile", "create_dirs", "create_triplets"]
 
 
 CONVERTER = make_converter()
@@ -45,8 +45,8 @@ class UploadFile(JsonableMixin):
 
 
 @dataclasses.dataclass
-class RemoteFile(JsonableMixin):
-    """Remote file which should be copied or linked."""
+class RemotePath(JsonableMixin):
+    """Remote path which should be copied or linked."""
 
     src_path: pathlib.Path
     tgt_name: str
@@ -54,17 +54,20 @@ class RemoteFile(JsonableMixin):
 
 
 @dataclasses.dataclass
+@dataclasses.dataclass
 class TargetDir(JsonableMixin):
     """Subdirectory of the work dir on the cluster to be created before running."""
 
     name: str
-    subdirs: list[TargetDir]
-    upload: list[UploadFile]
-    remote: list[RemoteFile]
+    subdirs: list[TargetDir] = dataclasses.field(default_factory=list)
+    upload: list[UploadFile] = dataclasses.field(default_factory=list)
+    remote: list[RemotePath] = dataclasses.field(default_factory=list)
 
 
 @dataclasses.dataclass
 class UploadTriplet:
+    """Structured representation of the data required for AiiDA to upload a file."""
+
     uuid: str
     src_name: str
     tgt_path: str
@@ -72,6 +75,8 @@ class UploadTriplet:
 
 @dataclasses.dataclass
 class RemoteTriplet:
+    """Structured representation of the data required to copy or link a remote file."""
+
     uuid: str
     src_path: str
     tgt_path: str
@@ -133,9 +138,11 @@ def create_dirs(
     path: list[str] | None = None,
     is_root: bool = True,
 ) -> None:
+    """Map the TargetDir hierarchy into the staging folder of a CalcJob."""
     path = path or []
     if not is_root:
         path.append(target_dir.name)
     for subdir in target_dir.subdirs:
         subfolder = folder.get_subfolder("/".join([*path, subdir.name]), create=True)
+        print(f"created {subfolder.abspath}")
         create_dirs(target_dir=subdir, folder=subfolder, path=path, is_root=False)
