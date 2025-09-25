@@ -2,6 +2,18 @@
 build-backend = "hatchling.build"
 requires = ["hatchling"]
 
+[dependency-groups]
+dev = [
+  "aiida-core>=2.7.1",
+  "ipython>=9.5.0",
+  "mypy>=1.17.1",
+  "pre-commit>=4.3.0",
+  "pytest>=8.4.1",
+  "ruff>=0.12.11",
+  "types-networkx>=3.5.0.20250918",
+  "types-pyyaml>=6.0.12.20250822"
+]
+
 [project]
 authors = [
   {name = "Rico Häuselmann", email = "rico.haeuselmann@gmail.com"}
@@ -9,6 +21,7 @@ authors = [
 dependencies = [
   "cattrs[pyyaml]>=25.2.0",
   "click>=8.1.0",
+  "networkx>=3.5",
   "platformdirs>=4.4.0",
   "pyyaml>=6.0.2",
   "textual",
@@ -25,6 +38,9 @@ version = "0.1.0"
 
 [project.entry-points."aiida.parsers"]
 "hpclb.generic" = "cse_labbook.aiida.calcjob:GenericParser"
+
+[project.entry-points."aiida.workchains"]
+"hpclb.async" = "cse_labbook.aiida.future:AsyncWorkchain"
 
 [project.scripts]
 hpclb = "cse_labbook.cli:app"
@@ -56,14 +72,3 @@ select = ["E", "F", "B", "ERA", "ANN", "S", "BLE", "C4", "ICN", "PT", "Q", "RSE"
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["S101"]
-
-[tool.uv]
-dev-dependencies = [
-  "aiida-core>=2.7.1",
-  "ipython>=9.5.0",
-  "mypy>=1.17.1",
-  "pre-commit>=4.3.0",
-  "pytest>=8.4.1",
-  "ruff>=0.12.11",
-  "types-pyyaml>=6.0.12.20250822"
-]

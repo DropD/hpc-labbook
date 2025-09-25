@@ -12,6 +12,7 @@ from __future__ import annotations
 import enum
 import pathlib
 import textwrap
+import tomllib
 import typing
 import uuid
 
@@ -89,15 +90,28 @@ def init(
         this.path.mkdir(parents=True)
 
     print(f"Initializing new project '{name}' in {path}")
-    if not (path / "pyproject.toml").exists():
+    pyproject_file = path / "pyproject.toml"
+    if not (pyproject_file).exists():
         print(" - setting up a python environment")
         this.uv.init()
-    print(" - writing the initial hpclb config")
 
+    print(" - writing the initial hpclb config")
     this.config = project.Config(name=name)
 
     print(" - adding minimum python dependencies")
-    this.uv.add([get_self_depstring()])
+    this.uv.add([get_self_depstring(), "taskipy"])
+
+    print(" - adding cli wrappers and shortcuts")
+    env_file = path / ".env"
+    env_file.write_text("AIIDA_PATH=.aiida")
+    pyproject = tomllib.loads(pyproject_file.read_text())
+    pyproject["tool"]["taskipy"]["tasks"] = {
+        "verdi": "uv run --env-file=.env",
+        "upgrade-hpclb": (
+            f"uv add --no-cache --upgrade-package cse-labbook {get_self_depstring()} "
+            "&& task verdi daemon stop && task verdi daemon start 4"
+        ),
+    }
 
     print(" - setting up the AiiDA profile")
     this.uv.add(["aiida-core"])

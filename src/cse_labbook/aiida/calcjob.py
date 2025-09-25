@@ -7,6 +7,7 @@ import typing
 from aiida import engine, orm
 from aiida.common import datastructures
 from aiida.parsers import parser
+from typing_extensions import Self
 
 from cse_labbook.aiida import data
 
@@ -19,18 +20,28 @@ class GenericCalculation(engine.CalcJob):
     """Generic CalcJob for the hpc lab book."""
 
     @classmethod
-    def define(cls, spec: calcjob.CalcJobProcessSpec) -> None:  # type: ignore[override] # forced by aiida-core
+    def define(cls: type[Self], spec: calcjob.CalcJobProcessSpec) -> None:  # type: ignore[override] # forced by aiida-core
         """Define the input and output ports as well as some defaults."""
         super().define(spec)
         spec.input("workdir", valid_type=orm.JsonableData)
+        spec.input("cmdline_params", valid_type=orm.List, required=False)
         spec.input_namespace("uploaded", dynamic=True, valid_type=orm.SinglefileData)
+        spec.input_namespace("futures", dynamic=True, valid_type=orm.JsonableData)
         options = spec.inputs["metadata"]["options"]  # type: ignore[index] # guaranteed correct by aiida-core
         options["parser_name"].default = "hpclb.generic"  # type: ignore[index] # guaranteed correct by aiida-core
+        options["resources"].default = {  # type: ignore[index] # guaranteed correct by aiida-core
+            "num_machines": 1,
+            "num_mpiprocs_per_machine": 1,
+        }
 
-    def prepare_for_submission(self, folder: folders.Folder) -> datastructures.CalcInfo:
+    def prepare_for_submission(
+        self: Self, folder: folders.Folder
+    ) -> datastructures.CalcInfo:
         """Set up the template for the work dir on the compute resource."""
         codeinfo = datastructures.CodeInfo()
         codeinfo.code_uuid = self.inputs.code.uuid
+        if "cmdline_params" in self.inputs:
+            codeinfo.cmdline_params = self.inputs.cmdline_params.value
         calcinfo = datastructures.CalcInfo()
         calcinfo.codes_info = [codeinfo]
 
@@ -49,6 +60,6 @@ class GenericCalculation(engine.CalcJob):
 class GenericParser(parser.Parser):
     """Parser for generic hpclb calculations."""
 
-    def parse(self, **kwargs: typing.Any) -> engine.ExitCode:  # noqa: ARG002,ANN401  # kwargs must be there for superclass compatibility
+    def parse(self: Self, **kwargs: typing.Any) -> engine.ExitCode:  # noqa: ARG002,ANN401  # kwargs must be there for superclass compatibility
         """Parse a retrieved calculation."""
         return engine.ExitCode(0)

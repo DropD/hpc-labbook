@@ -6,12 +6,13 @@ import dataclasses
 import pathlib
 import typing
 
-from aiida import engine
+from aiida import engine, orm
 from cattrs.preconf.json import make_converter
 from typing_extensions import Self
 
 if typing.TYPE_CHECKING:
     from aiida.common import folders
+    from aiida.engine.processes import ports
 
 
 __all__ = ["RemotePath", "TargetDir", "UploadFile", "create_dirs", "create_triplets"]
@@ -36,6 +37,30 @@ class JsonableMixin:
 
 
 @dataclasses.dataclass
+class Job(JsonableMixin):
+    """Job description."""
+
+    workdir: TargetDir
+
+
+@dataclasses.dataclass
+class Graph(JsonableMixin):
+    """Job dependency graph."""
+
+    nodes: list[Job]
+    edges: list[list[int]]
+
+
+@dataclasses.dataclass
+class Future(JsonableMixin):
+    """Info about a running calcjob for pre-submitting dependent jobs."""
+
+    jobid: str
+    uuid: str
+    workdir: pathlib.Path
+
+
+@dataclasses.dataclass
 class UploadFile(JsonableMixin):
     """Local file which should be uploaded under the name 'name'."""
 
@@ -54,6 +79,14 @@ class RemotePath(JsonableMixin):
 
 
 @dataclasses.dataclass
+class FuturePath(JsonableMixin):
+    """Path to be linked from a future."""
+
+    src_relpath: pathlib.Path
+    input_label: str
+    tgt_name: str
+
+
 @dataclasses.dataclass
 class TargetDir(JsonableMixin):
     """Subdirectory of the work dir on the cluster to be created before running."""
@@ -62,6 +95,7 @@ class TargetDir(JsonableMixin):
     subdirs: list[TargetDir] = dataclasses.field(default_factory=list)
     upload: list[UploadFile] = dataclasses.field(default_factory=list)
     remote: list[RemotePath] = dataclasses.field(default_factory=list)
+    from_future: list[FuturePath] = dataclasses.field(default_factory=list)
 
 
 @dataclasses.dataclass
@@ -146,3 +180,39 @@ def create_dirs(
         subfolder = folder.get_subfolder("/".join([*path, subdir.name]), create=True)
         print(f"created {subfolder.abspath}")
         create_dirs(target_dir=subdir, folder=subfolder, path=path, is_root=False)
+
+
+def build_uploads(target_dir: TargetDir) -> dict[str, orm.SinglefileData]:
+    """Create singlefile data node for each upload."""
+    uploads: dict[str, orm.SinglefileData] = {}
+    for subdir in target_dir.subdirs:
+        uploads |= build_uploads(subdir)
+    return uploads | {
+        u.input_label: orm.SinglefileData(u.source) for u in target_dir.upload
+    }
+
+
+def iter_future_links(
+    target_dir: TargetDir,
+    futures_ns: ports.PortNamespace,
+    path: pathlib.Path | None = None,
+    is_root: bool = True,
+) -> typing.Iterator[str]:
+    """Write linking code for linking outputs of futures."""
+    if not path:
+        path = pathlib.Path()
+    if not is_root:
+        path /= target_dir.name
+    for file in target_dir.from_future:
+        future = futures_ns.get(file.input_label, None)
+        if future is not None:
+            yield (
+                f"ln -s {future.obj.workdir / file.src_relpath} {path / file.tgt_name}"
+            )
+        else:
+            msg = (
+                f"The given futures namespace is missing the {file.input_label} input."
+            )
+            raise ValueError(msg)
+    for subdir in target_dir.subdirs:
+        yield from iter_future_links(subdir, futures_ns, path, False)
