@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pathlib
 import typing
+from typing import Callable
 
 import aiida
 import aiida.orm
@@ -12,6 +13,19 @@ import pytest
 import cse_labbook as hplb
 
 pytest_plugins = ["aiida.tools.pytest_fixtures"]
+
+
+def pytest_collection_modifyitems(
+    session: pytest.Session,  # noqa: ARG001  # signature determined by pytest
+    config: pytest.Config,
+    items: list[pytest.Item],
+) -> None:
+    """Skip tests that require the f7t cluster container fleet by default."""
+    if not config.getoption("-m"):
+        skip_me = pytest.mark.skip(reason="use `-m cluster` to run this test")
+        for item in items:
+            if "cluster" in item.keywords:
+                item.add_marker(skip_me)
 
 
 @pytest.fixture
@@ -62,4 +76,48 @@ def example_targetdir(tmp_path: pathlib.Path) -> aiida.orm.JsonableData:
                 ),
             ],
         )
+    )
+
+
+@pytest.fixture
+def cluster(aiida_computer: Callable[..., aiida.orm.Computer]) -> aiida.orm.Computer:
+    """Set up the f7t test cluster computer."""
+    comp = aiida_computer(
+        label="testcluster",
+        hostname="localhost",
+        transport_type="firecrest",
+        scheduler_type="firecrest",
+        # Yes, the following are hardcoded credentials. No, they are not dangerous.
+        # They are for the test cluster containers, not for a real system.
+        configuration_kwargs={
+            "url": "http://localhost:8000",
+            "token_uri": "http://localhost:8080/auth/realms/kcrealm/protocol/openid-connect/token",
+            "client_id": "firecrest-test-client",
+            "client_secret": "wZVHVIEd9dkJDh9hMKc6DTvkqXxnDttk",
+            "compute_resource": "cluster-slurm-api",
+            "billing_account": "myproject",
+            "temp_directory": "/home/fireuser/f7temp",
+            "max_io_allowed": 8,
+            "checksum_check": False,
+        },
+    )
+    dummy = pathlib.Path(__file__).parent / "data" / "dummy.sh"
+    transport = comp.get_transport()
+    transport.put(localpath=dummy, remotepath=pathlib.Path("/home/fireuser/dummy.sh"))
+    transport.chmod(path=pathlib.Path("/home/fireuser/dummy.sh"), mode=755)
+    return comp
+
+
+@pytest.fixture
+def cluster_dummy(
+    cluster: aiida.orm.Computer,
+    aiida_code_installed: Callable[..., aiida.orm.InstalledCode],
+) -> aiida.orm.InstalledCode:
+    """Set up the dummy code on the test cluster."""
+    return aiida_code_installed(
+        label="dummy",
+        default_calc_job_plugin="hpclb.generic",
+        computer=cluster,
+        filepath_executable="/home/fireuser/dummy.sh",
+        with_mpi=True,
     )

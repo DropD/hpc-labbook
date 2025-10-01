@@ -4,14 +4,18 @@ requires = ["hatchling"]
 
 [dependency-groups]
 dev = [
+  {include-group = "test"},
   "aiida-core>=2.7.1",
   "ipython>=9.5.0",
   "mypy>=1.17.1",
   "pre-commit>=4.3.0",
-  "pytest>=8.4.1",
   "ruff>=0.12.11",
   "types-networkx>=3.5.0.20250918",
   "types-pyyaml>=6.0.12.20250822"
+]
+test = [
+  "pytest>=8.4.1",
+  "aiida-firecrest"
 ]
 
 [project]
@@ -51,12 +55,15 @@ venv = "types"
 venvPath = ".venv"
 
 [tool.pytest.ini_options]
-addopts = ["--doctest-modules"]
+addopts = ["--doctest-modules", "--strict-markers"]
 filterwarnings = [
   "ignore:Object of type .* not in session, .* operation along .* will not proceed:sqlalchemy.exc.SAWarning",
   "ignore:There is no current event loop:DeprecationWarning:plumpy",
   "ignore:Use 'content=<...>' to upload raw bytes/text content.:DeprecationWarning:httpx",
   "ignore:Creating AiiDA configuration folder.*:UserWarning"
+]
+markers = [
+  "cluster"  # requires the local firecrestv2 docker compose cluster to be running
 ]
 
 [tool.ruff]
@@ -72,3 +79,6 @@ select = ["E", "F", "B", "ERA", "ANN", "S", "BLE", "C4", "ICN", "PT", "Q", "RSE"
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["S101"]
+
+[tool.uv.sources]
+aiida-firecrest = {git = "https://github.com/aiidateam/aiida-firecrest.git"}

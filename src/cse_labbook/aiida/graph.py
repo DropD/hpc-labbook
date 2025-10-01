@@ -24,6 +24,7 @@ class GraphWorkchain(workchain.WorkChain):
         super().define(spec)
         spec = typing.cast(workchain.WorkChainSpec, spec)
         spec.input("graph", valid_type=orm.JsonableData)
+        spec.input_namespace("node", dynamic=True)
         spec.outline(
             cls.start,  # type: ignore[arg-type] # aiida-core typing predates Self type
             engine.while_(cls.not_reached_end)(  # type: ignore[arg-type] # aiida-core typing predates Self type
@@ -94,7 +95,7 @@ class GraphWorkchain(workchain.WorkChain):
                     return self.exit_codes.JOB_FAILED
             node = graph.nodes[node_idx]
             builder: Any = future.AsyncWorkchain.get_builder()
-            builder.calc.code = orm.load_code("dummy")
+            builder.calc.code = orm.load_code("test-dummy")
             builder.calc.workdir = orm.JsonableData(node.workdir)
             builder.calc.uploaded = data.build_uploads(node.workdir)
             if dependencies:
@@ -106,6 +107,7 @@ class GraphWorkchain(workchain.WorkChain):
                 "num_machines": 1,
                 "num_mpiprocs_per_machine": 1,
             }
+            builder.calc.metadata.options.max_memory_kb = 5000
             if dependencies:
                 dep_string = ":".join(
                     d.outputs.future.obj.jobid for d in dependencies.values()
