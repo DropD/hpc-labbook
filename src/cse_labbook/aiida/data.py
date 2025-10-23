@@ -48,7 +48,7 @@ class Graph(JsonableMixin):
     """Job dependency graph."""
 
     nodes: list[Job]
-    edges: list[list[int]]
+    edges: list[tuple[int, int]]
 
 
 @dataclasses.dataclass

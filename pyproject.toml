@@ -15,7 +15,9 @@ dev = [
 ]
 test = [
   "pytest>=8.4.1",
-  "aiida-firecrest"
+  "aiida-firecrest",
+  "devtools>=0.12.2",
+  "aiida-pythonjob>=0.4.5"
 ]
 
 [project]

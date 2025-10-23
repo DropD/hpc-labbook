@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import pathlib
-import time
 import typing
 from typing import Any
 
+import aiida_pythonjob  # type: ignore[import-untyped]
 from aiida import engine, orm
 from aiida.engine import processes
 from aiida.engine.processes import process
@@ -14,6 +15,49 @@ from aiida.engine.processes.workchains import workchain
 from typing_extensions import Self
 
 from cse_labbook.aiida import calcjob, data
+
+
+class NotSubmittedError(Exception):
+    """Error for when a calcjob fails to submit asynchronously."""
+
+    default_msg: typing.ClassVar[str] = "Process not submitted and / or excepted."
+
+    def __str__(self: Self) -> str:
+        """Construct the error message."""
+        return self.default_msg
+
+
+class SubmittingTimedOutError(NotSubmittedError):
+    """Waiting for job being submitted timed out."""
+
+    default_msg = "Submitting timed out"
+    time_s: int | None
+
+    def __init__(
+        self: Self, message: str | None = None, *, time_s: int | None = None
+    ) -> None:
+        """Initialize with how long it took to time out."""
+        super().__init__(self, message)
+        self.message = message
+        self.time_s = time_s
+
+    def __str__(self: Self) -> str:
+        """Construct the error message."""
+        match (self.time_s, self.message):
+            case (int(_), None):
+                return f"{self.default_msg} in {self.time_s} s"
+            case (int(_), str(msg)) if msg != "":
+                return msg.format(time_s=self.time_s)
+            case (None, str(msg)) if msg != "":
+                return msg
+            case _:
+                return super().__str__()
+
+
+class KilledBeforeSubmittedError(NotSubmittedError):
+    """Job was killed while waiting for submission."""
+
+    default_msg = "Process got killed while waiting to be submitted."
 
 
 @engine.calcfunction
@@ -24,6 +68,36 @@ def create_future(uuid: orm.Str, jobid: orm.Str, workdir: orm.Str) -> orm.Jsonab
             uuid=uuid.value, jobid=jobid.value, workdir=pathlib.Path(workdir.value)
         )
     )
+
+
+@aiida_pythonjob.pyfunction()
+async def wait_for_submitted(uuid: str, poll_interval: int, timeout: int) -> None:
+    """Check for the underlying CalcJob to be submitted (queued) successfully."""
+    submitted = orm.load_node(uuid=uuid)
+    time_waited = 0
+    while submitted.get_job_id() is None or submitted.get_remote_workdir() is None:
+        if time_waited >= timeout:
+            msg = (
+                f"Timed out in {{time_s}}, with process_state {submitted.process_state}"
+            )
+            raise SubmittingTimedOutError(
+                message=msg,
+                time_s=time_waited,
+            )
+        await asyncio.sleep(poll_interval)
+        time_waited += poll_interval
+        print("checking if submitted")
+        print("- job id: {}".format(submitted.get_job_id()))
+        print("- workdir: {}".format(submitted.get_remote_workdir()))
+        match submitted.process_state:
+            case process.ProcessState.EXCEPTED:
+                print(submitted.exception)
+                raise NotSubmittedError
+            case process.ProcessState.KILLED:
+                raise KilledBeforeSubmittedError
+            case _:
+                pass
+        submitted = orm.load_node(uuid=uuid)
 
 
 class AsyncWorkchain(workchain.WorkChain):
@@ -38,7 +112,6 @@ class AsyncWorkchain(workchain.WorkChain):
         spec.output("future", valid_type=orm.JsonableData)
         spec.outline(
             cls.start,  # type: ignore[arg-type] # aiida-core typing predates Self type
-            engine.while_(cls.submitting)(cls.wait),  # type: ignore[arg-type] # aiida-core typing predates Self type
             cls.emit_future,  # type: ignore[arg-type] # aiida-core typing predates Self type
         )
         spec.exit_code(400, "CALC_FAILED_OR_KILLED", "the calculation didn't make it.")
@@ -50,10 +123,8 @@ class AsyncWorkchain(workchain.WorkChain):
 
     def start(self: Self) -> None:
         """Start up and submit the underlying CalcJob."""
-        self.ctx.wait_time = 5  # s
-        self.ctx.timeout = 300  # s
-        self.ctx.waited = 0  # s
-        print(str(self.exposed_inputs(calcjob.GenericCalculation, namespace="calc")))
+        self.ctx.wait_time = 1  # s
+        self.ctx.timeout = 30  # s
         builder: Any = calcjob.GenericCalculation.get_builder()
         builder.metadata = self.inputs.calc.metadata
         if "futures" in self.inputs.calc:
@@ -66,34 +137,28 @@ class AsyncWorkchain(workchain.WorkChain):
             builder,  # type: ignore[arg-type] # aiida-core typing is incorrect
             **self.exposed_inputs(calcjob.GenericCalculation, namespace="calc"),
         ).uuid
-
-    def submitting(self: Self) -> bool | process.ExitCode:
-        """Check for the underlying CalcJob to be submitted (queued) successfully."""
-        submitted = orm.load_node(uuid=self.ctx.submitted)
-        if submitted.process_state in [
-            process.ProcessState.EXCEPTED,
-            process.ProcessState.KILLED,
-        ]:
-            return self.exit_codes.CALC_FAILED_OR_KILLED
-        self.report("checking if submitted")
-        self.report("- job id: %s", submitted.get_job_id())
-        self.report("- workdir: %s", submitted.get_remote_workdir())
-        return submitted.get_job_id() is None or submitted.get_remote_workdir() is None
-
-    def wait(self: Self) -> None | process.ExitCode:
-        """
-        Wait some time before checking whether the CalcJob is submitted.
-
-        Time out after a while.
-        """
-        if self.ctx.waited >= self.ctx.timeout:
-            return self.exit_codes.CALC_FAILED_TO_SUBMIT
-        time.sleep(self.ctx.wait_time)
-        self.ctx.waited += self.ctx.wait_time
-        return None
+        self.ctx.wait_for_submit = self.to_context(
+            monitor=self.submit(
+                aiida_pythonjob.PyFunction,
+                **aiida_pythonjob.prepare_pyfunction_inputs(
+                    wait_for_submitted,
+                    function_inputs={
+                        "uuid": self.ctx.submitted,
+                        "poll_interval": self.ctx.wait_time,
+                        "timeout": self.ctx.timeout,
+                    },
+                ),
+            )
+        )
 
     def emit_future(self: Self) -> None:
         """Return a provenance graph level future for the underlying async CalcJob."""
+        if not self.ctx.monitor.is_finished_ok:
+            self.report(str(self.ctx.monitor.process_state))
+            self.report(str(self.ctx.monitor.exit_code))
+            self.report(self.ctx.monitor.exit_message)
+            self.report(str(self.ctx.monitor.exception))
+            raise NotSubmittedError
         submitted = orm.load_node(uuid=self.ctx.submitted)
         self.out(
             "future",

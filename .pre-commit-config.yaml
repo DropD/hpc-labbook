@@ -35,7 +35,7 @@ repos:
   - id: format
     stages: [pre-commit]
     name: format
-    entry: uv run ruff format
+    entry: uv --offline run ruff format
     language: system
     types: [python]
     exclude: |
@@ -45,7 +45,7 @@ repos:
   - id: lint
     stages: [pre-commit]
     name: lint
-    entry: uv run ruff check --fix --output-format concise
+    entry: uv --offline run ruff check --fix --output-format concise
     language: system
     types: [python]
     exclude: |

@@ -95,7 +95,7 @@ class GraphWorkchain(workchain.WorkChain):
                     return self.exit_codes.JOB_FAILED
             node = graph.nodes[node_idx]
             builder: Any = future.AsyncWorkchain.get_builder()
-            builder.calc.code = orm.load_code("test-dummy")
+            builder.calc.code = orm.load_code(self.inputs.node[f"n{node_idx}__code"])
             builder.calc.workdir = orm.JsonableData(node.workdir)
             builder.calc.uploaded = data.build_uploads(node.workdir)
             if dependencies:
