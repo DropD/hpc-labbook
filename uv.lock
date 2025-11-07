@@ -579,6 +579,7 @@ dependencies = [
     { name = "platformdirs" },
     { name = "pyyaml" },
     { name = "textual" },
+    { name = "tomlkit" },
     { name = "typer" },
 ]
 
@@ -611,6 +612,7 @@ requires-dist = [
     { name = "platformdirs", specifier = ">=4.4.0" },
     { name = "pyyaml", specifier = ">=6.0.2" },
     { name = "textual" },
+    { name = "tomlkit", specifier = ">=0.13.3" },
     { name = "typer", specifier = ">=0.17.3" },
 ]
 
@@ -2233,6 +2235,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/f1/e6/db89df54e3b0eac83d26fc90175cf4835c8d9461957b9e6b51494c686bd4/textual-6.0.0.tar.gz", hash = "sha256:cb8882e7601a80a130a96d01393bd4c6d1bffb7dc9f6a820eb6b526acf0bfe10", size = 1562240, upload-time = "2025-08-31T16:17:17.374Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a6/16/d4748acb854ead2891d7cc104a956febc5e569bfac82b061f51219cb087a/textual-6.0.0-py3-none-any.whl", hash = "sha256:833588ebe6c7b0e58d085a018cf064b995aa1ee9632fa95229acf7ac2ef8be9f", size = 707329, upload-time = "2025-08-31T16:17:15.638Z" },
+]
+
+[[package]]
+name = "tomlkit"
+version = "0.13.3"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/cc/18/0bbf3884e9eaa38819ebe46a7bd25dcd56b67434402b66a58c4b8e552575/tomlkit-0.13.3.tar.gz", hash = "sha256:430cf247ee57df2b94ee3fbe588e71d362a941ebb545dec29b53961d61add2a1", size = 185207, upload-time = "2025-06-05T07:13:44.947Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/bd/75/8539d011f6be8e29f339c42e633aae3cb73bffa95dd0f9adec09b9c58e85/tomlkit-0.13.3-py3-none-any.whl", hash = "sha256:c89c649d79ee40629a9fda55f8ace8c6a1b42deb912b2a8fd8d942ddadb606b0", size = 38901, upload-time = "2025-06-05T07:13:43.546Z" },
 ]
 
 [[package]]

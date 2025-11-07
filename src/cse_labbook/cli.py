@@ -12,12 +12,12 @@ from __future__ import annotations
 import enum
 import pathlib
 import textwrap
-import tomllib
 import typing
 import uuid
 
 import click
 import platformdirs
+import tomlkit
 import typer
 import yaml
 from typing_extensions import Annotated, Self
@@ -32,7 +32,7 @@ __all__ = ["app", "get_user_data_dir"]
 
 USER_DATA_DIR = pathlib.Path(platformdirs.user_data_dir("hpclb", "ricoh"))
 
-app = typer.Typer()
+app = typer.Typer(name="hpclb")
 app.add_typer(add_site := typer.Typer(), name="add-site")
 app.add_typer(auth_site := typer.Typer(), name="auth-site")
 
@@ -83,11 +83,15 @@ def init(
         ),
     ],
     name: Annotated[str, typer.Option(prompt=True)],
+    offline: Annotated[bool, typer.Option()] = False,
 ) -> None:
     """Start a new computer simulation project labbook in PATH."""
     this = project.Project(path)
     if not this.path.exists():
         this.path.mkdir(parents=True)
+
+    if offline:
+        this.offline_mode = True
 
     print(f"Initializing new project '{name}' in {path}")
     pyproject_file = path / "pyproject.toml"
@@ -104,18 +108,20 @@ def init(
     print(" - adding cli wrappers and shortcuts")
     env_file = path / ".env"
     env_file.write_text("AIIDA_PATH=.aiida")
-    pyproject = tomllib.loads(pyproject_file.read_text())
-    pyproject["tool"]["taskipy"]["tasks"] = {
-        "verdi": "uv run --env-file=.env",
+    pyproject = tomlkit.loads(pyproject_file.read_text())
+    pyproject.setdefault("tool", {}).setdefault("taskipy", {})["tasks"] = {
+        "verdi": "uv run --offline --env-file=.env verdi",
         "upgrade-hpclb": (
             f"uv add --no-cache --upgrade-package cse-labbook {get_self_depstring()} "
             "&& task verdi daemon stop && task verdi daemon start 4"
         ),
     }
+    pyproject_file.write_text(tomlkit.dumps(pyproject))
 
     print(" - setting up the AiiDA profile")
     this.uv.add(["aiida-core"])
     this.verdi(["presto"])
+    typer.Exit(0)
 
 
 def validate_is_project(path: pathlib.Path) -> pathlib.Path:
@@ -136,6 +142,183 @@ def validate_cscs_site_dir_not_present(path: pathlib.Path) -> pathlib.Path:
         print("site 'cscs' already present.")
         raise typer.Exit(code=1)
     return path
+
+
+def validate_f7t_site_dir_not_present(path: pathlib.Path) -> pathlib.Path:
+    """Check the path does not contain a 'cscs' subdirectory."""
+    path = validate_is_project(path)
+    proj = project.Project(pathlib.Path(path))
+
+    if proj.site_dir("f7ttest").exists():
+        print("site 'f7ttest' already present.")
+        raise typer.Exit(code=1)
+    return path
+
+
+@add_site.command("f7ttest")
+def f7ttest_add(
+    path: Annotated[
+        pathlib.Path,
+        typer.Argument(
+            file_okay=False,
+            dir_okay=True,
+            writable=True,
+            parser=validate_f7t_site_dir_not_present,
+        ),
+    ],
+    offline: Annotated[bool, typer.Option()] = False,
+) -> None:
+    """Add support for the firecrest2 test container cluster."""
+    this = project.Project(path)
+    this.offline_mode = offline
+    project_config = this.config
+    project_config.sites["f7ttest"] = project.Site(
+        docs="https://github.com/eth-cscs/firecrest-v2?tab=readme-ov-file#running-firecrest-v2-with-docker-compose"
+    )
+    print(
+        f"adding local FirecREST v2 container test cluster to project '{project_config.name}'"
+    )
+    print(" - updating config")
+    this.config = project_config
+
+    print(" - preparing compute resource descriptions")
+    f7ttest_dir = this.site_dir("f7ttest")
+    f7ttest_dir.mkdir()
+
+    this.uv.add(
+        [
+            "aiida-firecrest @ git+https://github.com/aiidateam/aiida-firecrest.git",
+        ]
+    )
+    print(" - adding compute resource to AiiDA")
+    work_path = pathlib.Path("/home/fireuser")
+    setup = f7ttest_dir / "f7ttest.setup.yaml"
+    setup.write_text(
+        yaml.safe_dump(
+            {
+                "append_text": "",
+                "default_memory_per_machine": 2000000,
+                "description": "local test cluster",
+                "hostname": "localhost",
+                "label": "f7ttest",
+                "mpiprocs_per_machine": 1,
+                "mpirun_command": (
+                    "srun -n {tot_num_mpiprocs} "
+                    "--ntasks-per-node {num_mpiprocs_per_machine}"
+                ),
+                "prepend_text": "",
+                "scheduler": "firecrest",
+                "shebang": "#!/bin/bash -l",
+                "transport": "firecrest",
+                "use_double_quotes": False,
+                "work_dir": str(work_path / "hpclb" / "work"),
+            }
+        )
+    )
+    config = f7ttest_dir / "f7ttest.auth.yaml"
+    config.write_text(
+        yaml.safe_dump(
+            {
+                "compute_resource": "cluster-slurm-api",
+                "temp_directory": str(work_path / "hpclb" / "f7temp"),
+                "token_uri": "http://localhost:8080/auth/realms/kcrealm/protocol/openid-connect/token",
+                "url": "http://localhost:8000",
+            }
+        )
+    )
+    this.verdi(["computer", "setup", "-n", "--config", str(setup.absolute())])
+    print(
+        "Ready to authenticate to your FirecREST test cluster "
+        "with 'hpclb auth-site f7ttest'. Please make sure you have "
+        "started the test cluster with 'docker compose up' or equivalent."
+    )
+
+
+def validate_f7t_site_dir_present(path: pathlib.Path) -> pathlib.Path:
+    """Check the path does not contain a 'cscs' subdirectory."""
+    path = validate_is_project(path)
+    proj = project.Project(pathlib.Path(path))
+
+    if not proj.site_dir("f7ttest").exists():
+        print(
+            f"site 'f7ttest' not added yet, add it with 'hpclb add-site cscs {path}'."
+        )
+        raise typer.Exit(code=1)
+    return path
+
+
+@auth_site.command("f7ttest")
+def f7ttest_auth(
+    path: Annotated[
+        pathlib.Path,
+        typer.Argument(
+            file_okay=False,
+            dir_okay=True,
+            writable=True,
+            parser=validate_f7t_site_dir_present,
+        ),
+    ],
+    offline: Annotated[bool, typer.Option()] = False,
+) -> None:
+    """Authenticate to CSCS via FirecREST."""
+    this = project.Project(path)
+    this.offline_mode = offline
+    project_config = this.config
+    print(
+        "Authenticating to local FirecREST v2 container "
+        f"cluster for project '{project_config.name}'"
+    )
+
+    auth_id = uuid.uuid4().hex
+    secret_file = get_user_data_dir() / f"{auth_id}.f7t"
+    current_auth = project.Auth(
+        client_id="firecrest-test-clien",
+        billing_account="myproject",
+        client_secret=str(secret_file),
+    )
+
+    machines = project_config.sites["f7ttest"].machines
+    client_secret = "wZVHVIEd9dkJDh9hMKc6DTvkqXxnDttk"  # noqa: S105  # this is for a local test cluster
+
+    print(" - authenticating to the test cluster")
+    config_file = this.site_dir("f7ttest") / "f7ttest.auth.yaml"
+    config_proc = this.verdi(
+        [
+            "computer",
+            "configure",
+            "firecrest",
+            "f7ttest",
+            "-n",
+            "--config",
+            str(config_file.absolute()),
+            "--client-id",
+            "firecrest-test-client",
+            "--client-secret",
+            client_secret,
+            "--billing-account",
+            "myproject",
+        ],
+        encoding="utf-8",
+    )
+    if config_proc.returncode != 0:
+        print(
+            (
+                "Something went wrong authenticating to the "
+                "test cluster. See ouptut below:\n",
+            )
+        )
+        print(config_proc.stdout)
+        print(config_proc.stderr)
+    else:
+        machines["f7ttest"] = project.Machine(auth=auth_id)
+
+    this.verdi(["computer", "test", "f7ttest"], stdout=None, stderr=None)
+
+    print(" - updating project config")
+    if config_proc.returncode == 0:
+        project_config.sites["f7ttest"].auths[auth_id] = current_auth
+        this.config = project_config
+        secret_file.write_text(client_secret)
 
 
 @add_site.command("cscs")
@@ -357,3 +540,69 @@ def cscs_auth(
         project_config.sites["cscs"].auths[auth_id] = current_auth
         this.config = project_config
         secret_file.write_text(client_secret)
+
+
+@app.command("run-generic")
+def run_generic(
+    path: Annotated[
+        pathlib.Path,
+        typer.Argument(file_okay=True, dir_okay=False, parser=validate_is_project),
+    ],
+    spec: Annotated[
+        pathlib.Path,
+        typer.Argument(file_okay=True, dir_okay=False),
+    ],
+) -> None:
+    import os
+
+    from aiida import engine, orm
+    from aiida.manage.configuration import (
+        load_profile,
+    )
+
+    from cse_labbook.aiida import calcjob
+
+    this = project.Project(path)
+    os.environ["AIIDA_PATH"] = str(this.aiida_dir)
+    p = load_profile(allow_switch=True)
+    job = this.load_spec(spec)
+    builder = calcjob.GenericCalculation.get_builder()
+    builder.code = orm.load_code(job.code)
+    if not builder.code.computer:
+        builder.metadata.computer = orm.load_computer(job.computer)
+    builder.workdir = orm.JsonableData(job.workdir)
+    if job.args:
+        builder.cmdline_params = job.args
+    for name, path in job.uploads.items():
+        builder.uploaded[name] = orm.SinglefileData(path)
+    builder.metadata.options.resources = job.resources
+
+    if job.uenv:
+        current_custom_scheduler_commands: str = (
+            builder.metadata.options.custom_scheduler_commands  # type: ignore[attr-defined]
+        )
+        lines = current_custom_scheduler_commands.splitlines()
+        uenv_line = f"#SBATCH --uenv={job.uenv.name}"
+        if job.uenv.view:
+            uenv_line = f"{uenv_line} --view={job.uenv.view}"
+        lines.append(uenv_line)
+        builder.metadata.options.custom_scheduler_commands = "\n".join(lines)  # type: ignore[attr-defined]
+
+    builder.metadata.label = job.label
+    builder.metadata.description = job.description
+    builder.metadata.options.environment_variables = job.envvars
+    builder.metadata.options.prepend_text = "\n".join(job.setup_script)
+    builder.metadata.options.append_text = "\n".join(job.cleanup_script)
+    builder.metadata.options.queue_name = job.queue
+    builder.metadata.options.withmpi = job.withmpi
+
+    node = engine.submit(builder)
+    print(node.pk)
+
+    group, _ = orm.groups.Group.collection.get_or_create(label=this.config.name)
+
+    group.add_nodes(node)
+
+    extras = orm.extras.EntityExtras(node)
+    for key, value in job.extras.items():
+        extras.set(key, value)

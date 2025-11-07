@@ -10,6 +10,7 @@ from cattrs.preconf.pyyaml import make_converter
 from typing_extensions import Self
 
 from cse_labbook import cli_tools as ct
+from cse_labbook import jobspec
 
 __all__ = ["Auth", "Config", "Machine", "Project", "Site"]
 
@@ -55,6 +56,7 @@ class Project:
     converter: cattrs.preconf.pyyaml.PyyamlConverter = dataclasses.field(
         default_factory=make_converter
     )
+    offline_mode: bool = False
 
     @property
     def config_file(self: Self) -> pathlib.Path:
@@ -83,9 +85,20 @@ class Project:
     @property
     def uv(self: Self) -> ct.Uv:
         """UV instance configured for this project."""
-        return ct.Uv(project=self.path)
+        return ct.Uv(project=self.path, offline=self.offline_mode)
 
     @property
     def verdi(self: Self) -> ct.Verdi:
         """Verdi instance configured for this project."""
         return ct.Verdi(project=self.path)
+
+    @property
+    def spec_dir(self: Self) -> pathlib.Path:
+        """Where the job specs are kept."""
+        return self.path / "specs"
+
+    def load_spec(self: Self, relpath: pathlib.Path) -> jobspec.Generic:
+        """Load a job spec."""
+        return self.converter.loads(
+            (self.spec_dir / relpath).read_text(), jobspec.Generic
+        )

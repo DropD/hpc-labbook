@@ -87,6 +87,17 @@ class Uv(CliToolMixin):
     """
 
     project: pathlib.Path = dataclasses.field(default_factory=pathlib.Path)
+    offline: bool = False
+
+    def run_subprocess(
+        self: Self,
+        args: list[str],
+        **kwargs: typing.Any,  # noqa: ANN401  # just passing through
+    ) -> subprocess.CompletedProcess:
+        """Directly run the subprocess with minimum wrapping."""
+        if self.offline:
+            args = ["--offline", *args]
+        return super().run_subprocess(args, **kwargs)
 
     @property
     def name(self: Self) -> str:
@@ -124,7 +135,7 @@ class Verdi(PythonCliTool):
     @property
     def name(self: Self) -> str:
         """Name of the 'verdi' cli."""
-        return "verdi"
+        return f"{self.project}/.venv/bin/verdi"
 
     @property
     def env(self: Self) -> dict[str, str]:
