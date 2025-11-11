@@ -37,10 +37,21 @@ class JsonableMixin:
 
 
 @dataclasses.dataclass
+class JobOptions(JsonableMixin):
+    """AiiDA CalcJob options."""
+
+    max_memory_kb: int = -1
+    withmpi: bool = True
+    resources: dict[str, int] = dataclasses.field(default_factory=dict)
+
+
+@dataclasses.dataclass
 class Job(JsonableMixin):
     """Job description."""
 
     workdir: TargetDir
+    code: str
+    options: JobOptions
 
 
 @dataclasses.dataclass

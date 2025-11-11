@@ -13,6 +13,7 @@ from typing_extensions import Self
 __all__ = ["Uv", "Verdi"]
 
 
+@dataclasses.dataclass
 class CliToolMixin:
     """Common lowlevel methods for CLI tools."""
 
@@ -37,8 +38,8 @@ class CliToolMixin:
     def populate_default_kwargs(
         self, popen_options: dict[str, typing.Any]
     ) -> dict[str, typing.Any]:
-        popen_options.setdefault("stdout", subprocess.PIPE)
-        popen_options.setdefault("stderr", subprocess.PIPE)
+        popen_options.setdefault("capture_output", True)
+        popen_options.setdefault("encoding", "utf-8")
         popen_options["env"] = self.env | popen_options.setdefault("env", {})
         popen_options.setdefault("cwd", self.cwd)
         return popen_options

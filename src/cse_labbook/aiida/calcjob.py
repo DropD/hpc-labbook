@@ -26,7 +26,6 @@ class GenericCalculation(engine.CalcJob):
         super().define(spec)
         spec.input("workdir", valid_type=orm.JsonableData)
         spec.input("cmdline_params", valid_type=orm.List, required=False)
-        # TODO: add retrieve list input
         spec.input_namespace("uploaded", dynamic=True, valid_type=orm.SinglefileData)
         spec.input_namespace("futures", dynamic=True, valid_type=orm.JsonableData)
         spec.input_namespace(
@@ -65,9 +64,9 @@ class GenericCalculation(engine.CalcJob):
         calcinfo.local_copy_list = [(i.uuid, i.src_name, i.tgt_path) for i in upload]
         calcinfo.remote_copy_list = [(i.uuid, i.src_path, i.tgt_path) for i in copy]
         calcinfo.remote_symlink_list = [(i.uuid, i.src_path, i.tgt_path) for i in link]
-        calcinfo.retrieve_list = list(self.inputs.download_required.values()) + list(
-            self.inputs.download_optional.values()
-        )
+        calcinfo.retrieve_list = list(
+            self.inputs.get("download_required", {}).values()
+        ) + list(self.inputs.get("download_optional", {}).values())
 
         return calcinfo
 
@@ -85,7 +84,6 @@ class GenericParser(parser.Parser):
 
     def parse(self: Self, **kwargs: typing.Any) -> engine.ExitCode:  # noqa: ARG002,ANN401  # kwargs must be there for superclass compatibility
         """Parse a retrieved calculation."""
-        # TODO: use retrieve list input
         strict_check = {
             "stdout": self.node.get_option("scheduler_stdout"),
             "stderr": self.node.get_option("scheduler_stderr"),
@@ -94,9 +92,9 @@ class GenericParser(parser.Parser):
         for key, pathstr in strict_check.items():
             path_in_repo = pathlib.Path(pathlib.Path(pathstr).name)
             if not self.is_file_retrieved(path_in_repo):
-                self.report(f"missing retrieved file: {path_in_repo}")
+                self.logger.error(f"missing retrieved file: {path_in_repo}")
                 missing_strict.append(key)
-        self.out("missing.download_required", missing_strict)
+        self.out("missing.download_required", orm.List(missing_strict))
         if missing_strict:
             return self.node.exit_codes.MISSING_OUTPUT_FILE
 

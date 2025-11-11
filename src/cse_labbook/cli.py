@@ -108,6 +108,7 @@ def init(
     print(" - adding cli wrappers and shortcuts")
     env_file = path / ".env"
     env_file.write_text("AIIDA_PATH=.aiida")
+    activate_script_path = this.path.absolute().resolve() / ".venv" / "bin" / "activate"
     pyproject = tomlkit.loads(pyproject_file.read_text())
     pyproject.setdefault("tool", {}).setdefault("taskipy", {})["tasks"] = {
         "verdi": "uv run --offline --env-file=.env verdi",
@@ -115,11 +116,15 @@ def init(
             f"uv add --no-cache --upgrade-package cse-labbook {get_self_depstring()} "
             "&& task verdi daemon stop && task verdi daemon start 4"
         ),
+        "activate": (
+            f"echo 'source {activate_script_path}; "
+            f"export AIIDA_PATH={this.aiida_dir.absolute().resolve()}'"
+        ),
     }
     pyproject_file.write_text(tomlkit.dumps(pyproject))
 
     print(" - setting up the AiiDA profile")
-    this.uv.add(["aiida-core"])
+    this.uv.add(["aiida-core", "aiida-pythonjob"])
     this.verdi(["presto"])
     typer.Exit(0)
 
@@ -176,7 +181,8 @@ def f7ttest_add(
         docs="https://github.com/eth-cscs/firecrest-v2?tab=readme-ov-file#running-firecrest-v2-with-docker-compose"
     )
     print(
-        f"adding local FirecREST v2 container test cluster to project '{project_config.name}'"
+        "adding local FirecREST v2 container test "
+        f"cluster to project '{project_config.name}'"
     )
     print(" - updating config")
     this.config = project_config
@@ -564,9 +570,9 @@ def run_generic(
 
     this = project.Project(path)
     os.environ["AIIDA_PATH"] = str(this.aiida_dir)
-    p = load_profile(allow_switch=True)
+    load_profile(allow_switch=True)
     job = this.load_spec(spec)
-    builder = calcjob.GenericCalculation.get_builder()
+    builder: typing.Any = calcjob.GenericCalculation.get_builder()
     builder.code = orm.load_code(job.code)
     if not builder.code.computer:
         builder.metadata.computer = orm.load_computer(job.computer)

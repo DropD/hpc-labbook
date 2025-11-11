@@ -95,19 +95,18 @@ class GraphWorkchain(workchain.WorkChain):
                     return self.exit_codes.JOB_FAILED
             node = graph.nodes[node_idx]
             builder: Any = future.AsyncWorkchain.get_builder()
-            builder.calc.code = orm.load_code(self.inputs.node[f"n{node_idx}__code"])
+            builder.calc.code = orm.load_code(node.code)
             builder.calc.workdir = orm.JsonableData(node.workdir)
             builder.calc.uploaded = data.build_uploads(node.workdir)
             if dependencies:
                 builder.calc.futures = {
                     f"dep_{i}": d.outputs.future for i, d in dependencies.items()
                 }
-            builder.calc.metadata.options.withmpi = True
-            builder.calc.metadata.options.resources = {
-                "num_machines": 1,
-                "num_mpiprocs_per_machine": 1,
-            }
-            builder.calc.metadata.options.max_memory_kb = 5000
+            builder.calc.metadata.options.withmpi = node.options.withmpi
+            if node.options.resources:
+                builder.calc.metadata.options.resources = node.options.resources
+            if node.options.max_memory_kb >= 0:
+                builder.calc.metadata.options.max_memory_kb = node.options.max_memory_kb
             if dependencies:
                 dep_string = ":".join(
                     d.outputs.future.obj.jobid for d in dependencies.values()

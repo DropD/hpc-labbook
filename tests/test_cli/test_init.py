@@ -29,7 +29,8 @@ def test_basic_init(tmp_path: pathlib.Path, runner: CliRunner) -> None:
     assert created.config_file.exists()
     assert (project_path / "pyproject.toml").exists()
     profile_list = created.verdi(["profile", "list"]).stdout.splitlines()
-    assert profile_list[0].split()[-1].decode("utf-8") == str(project_path / ".aiida")
+    assert profile_list[0].split()[-1] == str(project_path / ".aiida")
+    assert len(profile_list) == 2  # config dir line + presto
 
 
 def test_init_existing_empty(tmp_path: pathlib.Path, runner: CliRunner) -> None:

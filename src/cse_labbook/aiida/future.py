@@ -91,8 +91,7 @@ async def wait_for_submitted(uuid: str, poll_interval: int, timeout: int) -> Non
         print("- workdir: {}".format(submitted.get_remote_workdir()))
         match submitted.process_state:
             case process.ProcessState.EXCEPTED:
-                print(submitted.exception)
-                raise NotSubmittedError
+                raise ExceptionGroup(submitted.exception, [NotSubmittedError()])
             case process.ProcessState.KILLED:
                 raise KilledBeforeSubmittedError
             case _:
@@ -154,10 +153,10 @@ class AsyncWorkchain(workchain.WorkChain):
     def emit_future(self: Self) -> None:
         """Return a provenance graph level future for the underlying async CalcJob."""
         if not self.ctx.monitor.is_finished_ok:
-            self.report(str(self.ctx.monitor.process_state))
-            self.report(str(self.ctx.monitor.exit_code))
-            self.report(self.ctx.monitor.exit_message)
-            self.report(str(self.ctx.monitor.exception))
+            self.report("---\nmonitor state: %s", str(self.ctx.monitor.process_state))
+            self.report("---\nmonitor exit code: %s", str(self.ctx.monitor.exit_code))
+            self.report("---\nmonitor exit message: %s", self.ctx.monitor.exit_message)
+            self.report("---\nmonitor exception: %s", str(self.ctx.monitor.exception))
             raise NotSubmittedError
         submitted = orm.load_node(uuid=self.ctx.submitted)
         self.out(

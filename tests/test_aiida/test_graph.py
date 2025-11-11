@@ -10,6 +10,7 @@ import aiida
 import aiida.engine
 import aiida.orm
 import pytest
+from aiida.cmdline.utils.common import get_workchain_report
 from typer.testing import CliRunner
 
 import cse_labbook as hpclb
@@ -26,7 +27,8 @@ def project(
 ) -> Iterator[hpclb.project.Project]:
     """Create a temporary project to test on the local F7T cluster."""
     tmp_path = tmp_path_factory.mktemp("graphtest")
-    # tmp_path = pathlib.Path("/Users/ricoh/Code/graphtest")
+    # for debugging: overwrite with persistent dir
+    # like tmp_path = pathlib.Path("/Users/ricoh/Code/graphtest")
     runner = CliRunner()
     print(
         runner.invoke(
@@ -34,7 +36,7 @@ def project(
         ).output
     )
     result = hpclb.project.Project(tmp_path)
-    print(result.verdi(["profile", "show", "presto"]).stdout.decode("utf-8"))
+    print(result.verdi(["profile", "show", "presto"]).stdout)
     print(
         result.verdi(
             [
@@ -45,9 +47,9 @@ def project(
                 "--broker-host",
                 "aiida-rabbit.orb.local",
             ],
-        ).stdout.decode("utf-8")
+        ).stdout
     )
-    print(result.verdi(["profile", "show", "presto"]).stdout.decode("utf-8"))
+    print(result.verdi(["profile", "show", "presto"]).stdout)
     print(runner.invoke(hpclb.cli.app, ["add-site", "f7ttest", str(tmp_path)]).output)
     print(runner.invoke(hpclb.cli.app, ["auth-site", "f7ttest", str(tmp_path)]).output)
     print(
@@ -71,6 +73,7 @@ def project(
         ).stdout
     )
     print(result.verdi(["daemon", "start", "4"], encoding="utf-8").stdout)
+    print(result.verdi(["daemon", "start", "4"], encoding="utf-8").stdout)
     yield result
     print(result.verdi(["daemon", "stop"], encoding="utf-8").stdout)
 
@@ -78,7 +81,13 @@ def project(
 @pytest.fixture
 def minimum_graph() -> data.Graph:
     """Set up the smallest possible graph worth testing."""
+    jobts = data.JobOptions(
+        max_memory_kb=5000,
+        resources={"num_machines": 1, "num_mpiprocs_per_machine": 1},
+        withmpi=False,
+    )
     step1 = data.Job(
+        code="test-dummy",
         workdir=data.TargetDir(
             name="root",
             upload=[
@@ -90,9 +99,11 @@ def minimum_graph() -> data.Graph:
                     tgt_name="input.txt",
                 )
             ],
-        )
+        ),
+        options=jobts,
     )
     step2 = data.Job(
+        code="test-dummy",
         workdir=data.TargetDir(
             name="root",
             from_future=[
@@ -102,7 +113,8 @@ def minimum_graph() -> data.Graph:
                     tgt_name="input.txt",
                 )
             ],
-        )
+        ),
+        options=jobts,
     )
     return data.Graph(nodes=[step1, step2], edges=[(0, 1)])
 
@@ -142,9 +154,8 @@ def test_min_graph(
     """
     builder: Any = graph.GraphWorkchain.get_builder()
     builder.graph = aiida.orm.JsonableData(minimum_graph)
-    builder.node.n0__code = "test-dummy"
-    builder.node.n1__code = "test-dummy"
     result = aiida.engine.submit(builder, wait=True)
+    print(get_workchain_report(result, levelname="INFO"))  # type: ignore[arg-type] # it is a workchain node, trust me
     start_a, start_b = result.called
     calcjob_a, _, future_gen_a = start_a.called
     calcjob_b, _, future_gen_b = start_b.called
