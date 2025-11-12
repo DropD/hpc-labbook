@@ -32,7 +32,8 @@ dependencies = [
   "pyyaml>=6.0.2",
   "textual",
   "tomlkit>=0.13.3",
-  "typer>=0.17.3"
+  "typer>=0.17.3",
+  "uv>=0.9.8"
 ]
 description = "A labbook for all who run exploratory simulation experiments on HPC clusters."
 name = "hpc-labbook"

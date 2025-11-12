@@ -51,7 +51,7 @@ def test_init_existing_nonempty(tmp_path: pathlib.Path, runner: CliRunner) -> No
     )
     assert res.exit_code == 2
     assert re.findall(
-        r"Invalid value for 'PATH': Project is already initialized",
+        r"Project is already initialized",
         res.output,
         re.MULTILINE,
     )
