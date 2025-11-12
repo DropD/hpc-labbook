@@ -5,7 +5,7 @@ from __future__ import annotations
 import dataclasses
 import pathlib
 
-from cse_labbook.aiida import data
+from hpclb.aiida import data
 
 
 @dataclasses.dataclass

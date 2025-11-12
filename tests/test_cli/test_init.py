@@ -6,7 +6,7 @@ import re
 import pytest
 from typer.testing import CliRunner
 
-from cse_labbook import cli, project
+from hpclb import cli, project
 
 
 @pytest.fixture(scope="session")

@@ -10,7 +10,7 @@ import aiida
 import aiida.orm
 import pytest
 
-import cse_labbook as hplb
+import hpclb
 
 pytest_plugins = ["aiida.tools.pytest_fixtures"]
 
@@ -48,28 +48,28 @@ def example_targetdir(tmp_path: pathlib.Path) -> aiida.orm.JsonableData:
     config_file = staging / "foo.config"
     config_file.write_text("a = 1\nb = 2\n")
     return aiida.orm.JsonableData(
-        hplb.aiida.data.TargetDir(
+        hpclb.aiida.data.TargetDir(
             name="root",
             subdirs=[
-                hplb.aiida.data.TargetDir(
+                hpclb.aiida.data.TargetDir(
                     name="config",
                     upload=[
-                        hplb.aiida.data.UploadFile(
+                        hpclb.aiida.data.UploadFile(
                             source=config_file,
                             input_label="config_file",
                             tgt_name="input.config",
                         )
                     ],
                 ),
-                hplb.aiida.data.TargetDir(name="out-files"),
+                hpclb.aiida.data.TargetDir(name="out-files"),
             ],
             remote=[
-                hplb.aiida.data.RemotePath(
+                hpclb.aiida.data.RemotePath(
                     src_path=pathlib.Path("/some/absolute/path/somefile.xml"),
                     tgt_name="data.xml",
                     copy=True,
                 ),
-                hplb.aiida.data.RemotePath(
+                hpclb.aiida.data.RemotePath(
                     src_path=pathlib.Path("/some/path/to/dir"),
                     tgt_name="datadir",
                     copy=False,

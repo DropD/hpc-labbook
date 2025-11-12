@@ -13,8 +13,8 @@ import pytest
 from aiida.cmdline.utils.common import get_workchain_report
 from typer.testing import CliRunner
 
-import cse_labbook as hpclb
-from cse_labbook.aiida import data, graph
+import hpclb as hpclb
+from hpclb.aiida import data, graph
 
 if typing.TYPE_CHECKING:
     import aiida.manage

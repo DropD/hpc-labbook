@@ -9,8 +9,8 @@ import cattrs
 from cattrs.preconf.pyyaml import make_converter
 from typing_extensions import Self
 
-from cse_labbook import cli_tools as ct
-from cse_labbook import jobspec
+from hpclb import cli_tools as ct
+from hpclb import jobspec
 
 __all__ = ["Auth", "Config", "Machine", "Project", "Site"]
 

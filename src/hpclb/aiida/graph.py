@@ -12,7 +12,9 @@ from aiida.engine.processes import exit_code
 from aiida.engine.processes.workchains import workchain
 from typing_extensions import Self
 
-from cse_labbook.aiida import data, future
+from hpclb.aiida import data, future
+
+__all__ = ["GraphWorkchain"]
 
 
 class GraphWorkchain(workchain.WorkChain):

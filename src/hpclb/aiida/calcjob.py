@@ -10,11 +10,14 @@ from aiida.common import datastructures
 from aiida.parsers import parser
 from typing_extensions import Self
 
-from cse_labbook.aiida import data
+from hpclb.aiida import data
 
 if typing.TYPE_CHECKING:
     from aiida.common import folders
     from aiida.engine.processes.calcjobs import calcjob
+
+
+__all__ = ["GenericCalculation", "GenericParser"]
 
 
 class GenericCalculation(engine.CalcJob):

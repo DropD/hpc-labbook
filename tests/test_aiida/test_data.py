@@ -6,14 +6,14 @@ import typing
 import aiida.common.folders
 import aiida.orm
 
-import cse_labbook as hplb
+import hpclb
 
 
 def test_create_triplets(
     example_code: aiida.orm.InstalledCode, example_targetdir: aiida.orm.JsonableData
 ) -> None:
     """Test upload / copy / link triplet creation from a TargetDir."""
-    builder: typing.Any = hplb.aiida.calcjob.GenericCalculation.get_builder()
+    builder: typing.Any = hpclb.aiida.calcjob.GenericCalculation.get_builder()
     builder.code = example_code
     builder.workdir = example_targetdir
     config_file = aiida.orm.SinglefileData(
@@ -25,25 +25,25 @@ def test_create_triplets(
         "num_mpiprocs_per_machine": 1,
         "num_cores_per_mpiproc": 1,
     }
-    calc = hplb.aiida.calcjob.GenericCalculation(dict(builder))
-    upload, copy, link = hplb.aiida.data.create_triplets(
-        typing.cast(hplb.aiida.data.TargetDir, example_targetdir.obj), calc
+    calc = hpclb.aiida.calcjob.GenericCalculation(dict(builder))
+    upload, copy, link = hpclb.aiida.data.create_triplets(
+        typing.cast(hpclb.aiida.data.TargetDir, example_targetdir.obj), calc
     )
 
     assert upload == [
-        hplb.aiida.data.UploadTriplet(
+        hpclb.aiida.data.UploadTriplet(
             uuid=config_file.uuid, src_name="foo.config", tgt_path="config/input.config"
         )
     ]
     assert copy == [
-        hplb.aiida.data.RemoteTriplet(
+        hpclb.aiida.data.RemoteTriplet(
             uuid=example_code.computer.uuid,
             src_path="/some/absolute/path/somefile.xml",
             tgt_path="data.xml",
         )
     ]
     assert link == [
-        hplb.aiida.data.RemoteTriplet(
+        hpclb.aiida.data.RemoteTriplet(
             uuid=example_code.computer.uuid,
             src_path="/some/path/to/dir",
             tgt_path="datadir",
@@ -56,8 +56,8 @@ def test_create_dirs(
 ) -> None:
     """Make sure the correct directory structure is created."""
     folder = aiida.common.folders.Folder(abspath=tmp_path.absolute())
-    hplb.aiida.data.create_dirs(
-        typing.cast(hplb.aiida.data.TargetDir, example_targetdir.obj), folder
+    hpclb.aiida.data.create_dirs(
+        typing.cast(hpclb.aiida.data.TargetDir, example_targetdir.obj), folder
     )
 
     assert (tmp_path / "config").is_dir()

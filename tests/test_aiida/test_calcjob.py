@@ -9,7 +9,7 @@ import aiida
 import aiida.common.folders
 import aiida.orm
 
-import cse_labbook as hplb
+import hpclb
 
 
 def test_example_generic_presubmit(
@@ -24,7 +24,7 @@ def test_example_generic_presubmit(
     TargetDir hierarchy. So should the copy and symlink lists.
     """
     staging = tmp_path
-    builder: typing.Any = hplb.aiida.calcjob.GenericCalculation.get_builder()
+    builder: typing.Any = hpclb.aiida.calcjob.GenericCalculation.get_builder()
     builder.code = example_code
     builder.workdir = example_targetdir
     config_file = aiida.orm.SinglefileData(
@@ -36,7 +36,7 @@ def test_example_generic_presubmit(
         "num_mpiprocs_per_machine": 1,
         "num_cores_per_mpiproc": 1,
     }
-    calc = hplb.aiida.calcjob.GenericCalculation(dict(builder))
+    calc = hpclb.aiida.calcjob.GenericCalculation(dict(builder))
     sandbox_folder = aiida.common.folders.SandboxFolder(staging.absolute())
     sandbox = pathlib.Path(sandbox_folder.abspath)
     calcinfo = calc.presubmit(sandbox_folder)

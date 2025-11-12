@@ -22,7 +22,7 @@ import typer
 import yaml
 from typing_extensions import Annotated, Self
 
-from cse_labbook import project
+from hpclb import project
 
 if typing.TYPE_CHECKING:
     import os
@@ -70,7 +70,7 @@ def get_self_depstring() -> str:
     """Return the package name, or top level file url if installed editably."""
     this_file = pathlib.Path(__file__)
     if this_file.parent.parent.name == "site-packages":
-        return __package__ or "cse_labbook"
+        return __package__ or "hpclb"
     return str(this_file.parent.parent.parent.absolute())
 
 
@@ -113,7 +113,7 @@ def init(
     pyproject.setdefault("tool", {}).setdefault("taskipy", {})["tasks"] = {
         "verdi": "uv run --offline --env-file=.env verdi",
         "upgrade-hpclb": (
-            f"uv add --no-cache --upgrade-package cse-labbook {get_self_depstring()} "
+            f"uv add --no-cache --upgrade-package hpc-labbook {get_self_depstring()} "
             "&& task verdi daemon stop && task verdi daemon start 4"
         ),
         "activate": (
@@ -566,7 +566,7 @@ def run_generic(
         load_profile,
     )
 
-    from cse_labbook.aiida import calcjob
+    from hpclb.aiida import calcjob
 
     this = project.Project(path)
     os.environ["AIIDA_PATH"] = str(this.aiida_dir)

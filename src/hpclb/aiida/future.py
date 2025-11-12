@@ -14,7 +14,9 @@ from aiida.engine.processes import process
 from aiida.engine.processes.workchains import workchain
 from typing_extensions import Self
 
-from cse_labbook.aiida import calcjob, data
+from hpclb.aiida import calcjob, data
+
+__all__ = ["AsyncWorkchain", "NotSubmittedError", "SubmittingTimedOutError"]
 
 
 class NotSubmittedError(Exception):
