@@ -85,7 +85,7 @@ class Project:
     @property
     def uv(self: Self) -> ct.Uv:
         """UV instance configured for this project."""
-        return ct.Uv(project=self.path, offline=self.offline_mode)
+        return ct.Uv(project=self.path.absolute().resolve(), offline=self.offline_mode)
 
     @property
     def verdi(self: Self) -> ct.Verdi:

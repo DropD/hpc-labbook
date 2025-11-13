@@ -816,6 +816,7 @@ name = "hpc-labbook"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "aiida-core" },
     { name = "cattrs", extra = ["pyyaml"] },
     { name = "click" },
     { name = "networkx" },
@@ -829,7 +830,6 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "aiida-core" },
     { name = "aiida-firecrest" },
     { name = "aiida-pythonjob" },
     { name = "devtools" },
@@ -849,6 +849,7 @@ test = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aiida-core", specifier = ">=2.7.1" },
     { name = "cattrs", extras = ["pyyaml"], specifier = ">=25.2.0" },
     { name = "click", specifier = ">=8.1.0" },
     { name = "networkx", specifier = ">=3.5" },
@@ -862,7 +863,6 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "aiida-core", specifier = ">=2.7.1" },
     { name = "aiida-firecrest", git = "https://github.com/aiidateam/aiida-firecrest.git" },
     { name = "aiida-pythonjob", specifier = ">=0.4.5" },
     { name = "devtools", specifier = ">=0.12.2" },

@@ -2,7 +2,7 @@
 hpclb add-site cscs subcommand.
 
 Adds a directory with template yaml files for adding CSCS clusters
-to the project as AiiDA computers. Then let's you pick which ones to add.
+to the project as AiiDA computers. Then uses them to add the resources.
 """
 
 from __future__ import annotations
@@ -14,8 +14,9 @@ import yaml
 from typing_extensions import Annotated
 
 from hpclb import project
-from hpclb.cli import params
+from hpclb.cli import comms, params
 from hpclb.cli.app import add_site
+from hpclb.cli.cscs.constants import SITE_DIR_NAME
 
 
 @add_site.command("cscs")
@@ -26,7 +27,7 @@ def add_cscs(
             file_okay=False,
             dir_okay=True,
             writable=True,
-            parser=params.path_site_absent("cscs"),
+            parser=params.project_site_absent(SITE_DIR_NAME),
         ),
     ],
     username: Annotated[str, typer.Option(prompt=True)],
@@ -44,33 +45,41 @@ def add_cscs(
             ),
         ),
     ] = pathlib.Path("/capstor/scratch/cscs/{username}"),
+    offline: Annotated[bool, typer.Option()] = False,
 ) -> None:
     """Add support for running on CSCS ALPS."""
     this = project.Project(path)
+    this.offline_mode = offline
+    ucomm = comms.Communicator()
     project_config = this.config
-    project_config.sites["cscs"] = project.Site(docs="https://docs.cscs.ch")
-    print(f"adding compute site CSCS to project '{project_config.name}'")
-    print(" - updating config")
+    project_config.sites[SITE_DIR_NAME] = project.Site(docs="https://docs.cscs.ch")
+    status = ucomm.task(f"adding compute site CSCS to project '{project_config.name}'")
+    status.start()
     this.config = project_config
+    ucomm.report_success("updated config")
 
     work_path = pathlib.Path(str(work_path).format(username=username))
 
-    print(" - preparing compute resource descriptions")
-    cscs_dir = this.site_dir("cscs")
+    cscs_dir = this.site_dir(SITE_DIR_NAME)
     cscs_dir.mkdir()
 
-    this.uv.add(
+    res = this.uv.add(
         [
             "aiida-firecrest @ git+https://github.com/aiidateam/aiida-firecrest.git",
+            *(["--frozen"] if offline else []),
         ]
     )
+    ucomm.report_on_subprocess(res, "add aiida-firecrest dependency")
     fcurls = {
         "santis": "https://api.cscs.ch/cw/firecrest/v2",
         "daint": "https://api.cscs.ch/hpc/firecrest/v2",
         "clariden": "https://api.cscs.ch/ml/firecrest/v2",
     }
+    ucomm.report_success(
+        f"prepared compute resource descriptions in {this.site_dir(SITE_DIR_NAME)}"
+    )
     vclusters = ["clariden", "daint", "santis"]
-    print(f" - adding compute resources {vclusters} to AiiDA")
+    status.update(f"adding compute resources {vclusters} to AiiDA")
     for vcluster in vclusters:
         setup = cscs_dir / f"{vcluster}.setup.yaml"
         setup.write_text(
@@ -106,8 +115,15 @@ def add_cscs(
                 }
             )
         )
-        this.verdi(["computer", "setup", "-n", "--config", str(setup.absolute())])
-    print(
-        "Ready to authenticate to your CSCS "
-        "compute resources with 'hpclb auth-site cscs'"
+        res = this.verdi(["computer", "setup", "-n", "--config", str(setup.absolute())])
+        ucomm.report_on_subprocess(res, f"add '{vcluster}' compute resource")
+    status.stop()
+    ucomm.next_step(
+        f"""
+        **Ready to authenticate to your CSCS compute resources with**
+
+        ```bash
+        hpclb auth-site cscs {this.path}
+        ```
+        """
     )

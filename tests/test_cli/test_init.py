@@ -1,18 +1,15 @@
 """Test the init subcommand."""
 
+from __future__ import annotations
+
 import pathlib
 import re
-
-import pytest
-from typer.testing import CliRunner
+import typing
 
 from hpclb import cli, project
 
-
-@pytest.fixture(scope="session")
-def runner() -> CliRunner:
-    """One cli runner is enough."""
-    return CliRunner()
+if typing.TYPE_CHECKING:
+    from typer.testing import CliRunner
 
 
 def test_basic_init(tmp_path: pathlib.Path, runner: CliRunner) -> None:

@@ -8,7 +8,9 @@ import tomlkit
 import typer
 from typing_extensions import Annotated
 
+import hpclb
 from hpclb import project
+from hpclb.cli import comms
 from hpclb.cli.app import app
 from hpclb.cli.params import path_is_not_project
 
@@ -17,10 +19,10 @@ __all__ = ["init"]
 
 def get_self_depstring() -> str:
     """Return the package name, or top level file url if installed editably."""
-    this_file = pathlib.Path(__file__)
-    if this_file.parent.parent.name == "site-packages":
+    toplevel = pathlib.Path(hpclb.__file__)
+    if toplevel.parent.parent.name == "site-packages":
         return __package__ or "hpclb"
-    return str(this_file.parent.parent.parent.absolute())
+    return str(toplevel.parent.parent.parent.absolute())
 
 
 @app.command()
@@ -36,25 +38,29 @@ def init(
 ) -> None:
     """Start a new computer simulation project labbook in PATH."""
     this = project.Project(path)
+    this.offline_mode = offline
+    ucomm = comms.Communicator()
     if not this.path.exists():
         this.path.mkdir(parents=True)
 
-    if offline:
-        this.offline_mode = True
-
-    print(f"Initializing new project '{name}' in {path}")
+    status = ucomm.task(f"initializing new project '{name}' in {path}")
+    status.start()
     pyproject_file = path / "pyproject.toml"
     if not (pyproject_file).exists():
-        print(" - setting up a python environment")
-        this.uv.init()
+        status.update("setting up a python environment")
+        res = this.uv.init()
+        ucomm.report_on_subprocess(res, "set up a python environment")
+        status.update(f"initializing new project {name} in {path}")
 
-    print(" - writing the initial hpclb config")
     this.config = project.Config(name=name)
+    ucomm.report_success("created hpclb config")
 
-    print(" - adding minimum python dependencies")
-    this.uv.add([get_self_depstring(), "taskipy"])
+    res = this.uv.add(["uv", get_self_depstring(), "taskipy"])
+    ucomm.report_on_subprocess(res, "added minimum python dependencies")
+    if res.returncode != 0:
+        status.stop()
+        raise typer.Exit(code=1)
 
-    print(" - adding cli wrappers and shortcuts")
     env_file = path / ".env"
     env_file.write_text("AIIDA_PATH=.aiida")
     activate_script_path = this.path.absolute().resolve() / ".venv" / "bin" / "activate"
@@ -71,8 +77,15 @@ def init(
         ),
     }
     pyproject_file.write_text(tomlkit.dumps(pyproject))
+    ucomm.report_success("add cli wrappers and shortcuts")
 
-    print(" - setting up the AiiDA profile")
-    this.uv.add(["aiida-core", "aiida-pythonjob"])
-    this.verdi(["presto"])
+    status.update("setting up the AiiDA profile")
+    res = this.uv.add(["aiida-core", "aiida-pythonjob"])
+    ucomm.report_on_subprocess(res, "add minimum python dependencies")
+    if res.returncode != 0:
+        status.stop()
+        raise typer.Exit(code=1)
+    res = this.verdi(["presto"])
+    ucomm.report_on_subprocess(res, "create an AiiDA profile")
+    status.stop()
     typer.Exit(0)
