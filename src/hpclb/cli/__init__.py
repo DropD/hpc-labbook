@@ -9,7 +9,7 @@ Commands:
 
 from __future__ import annotations
 
-from hpclb.cli import cscs, f7ttest, init_cmd, run_generic_cmd
+from hpclb.cli import cscs, f7ttest, init_cmd, jobs_cmd, run_generic_cmd
 from hpclb.cli.app import app
 
-__all__ = ["app", "cscs", "f7ttest", "init_cmd", "run_generic_cmd"]
+__all__ = ["app", "cscs", "f7ttest", "init_cmd", "jobs_cmd", "run_generic_cmd"]
