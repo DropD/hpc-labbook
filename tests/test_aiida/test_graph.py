@@ -28,7 +28,7 @@ def project(
     """Create a temporary project to test on the local F7T cluster."""
     tmp_path = tmp_path_factory.mktemp("graphtest")
     # for debugging: overwrite with persistent dir
-    # like tmp_path = pathlib.Path("/Users/ricoh/Code/graphtest")
+    # like tmp_path = pathlib.Path("/Users/ricoh/Code/graphtest-hpclb")
     runner = CliRunner()
     print(
         runner.invoke(
