@@ -100,12 +100,16 @@ class Generic:
         builder.metadata.options.withmpi = self.withmpi
         return builder
 
-    def submit(self: Self) -> orm.CalcJobNode:
-        """Submit the job and add groups and annotations."""
-        node = typing.cast(orm.CalcJobNode, engine.submit(self.to_builder()))
+    def annotate(self: Self, node: orm.CalcJobNode) -> None:
+        """Annotate a stored calc node created from this instance."""
         for group_name in self.groups:
             group, _ = orm.groups.Group.collection.get_or_create(label=group_name)
             group.add_nodes(node)
         for key, value in self.extras.items():
             node.base.extras.set(key, value)
+
+    def submit(self: Self) -> orm.CalcJobNode:
+        """Submit the job and add groups and annotations."""
+        node = typing.cast(orm.CalcJobNode, engine.submit(self.to_builder()))
+        self.annotate(node)
         return node
