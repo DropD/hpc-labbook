@@ -11,6 +11,7 @@ import pendulum
 import rich.markdown
 import rich.text
 import textual.app
+import textual.screen
 from aiida import orm
 from aiida.cmdline.utils.common import get_calcjob_report, get_workchain_report
 from textual import containers, widgets
@@ -242,6 +243,17 @@ class ProcessBrowser(textual.app.App):
     }
     """
 
+    def get_system_commands(
+        self: Self, screen: textual.screen.Screen
+    ) -> typing.Iterable[textual.app.SystemCommand]:
+        """Define additional commands for the command palette."""
+        yield from super().get_system_commands(screen)
+        yield textual.app.SystemCommand(
+            "Filter: Successful",
+            "Filter processes to show only sucessfully completed ones.",
+            self.filter_successful,
+        )
+
     def compose(self: Self) -> textual.app.ComposeResult:
         """Create the app's child widgets."""
         yield widgets.Header()
@@ -249,6 +261,23 @@ class ProcessBrowser(textual.app.App):
             yield widgets.DataTable(fixed_columns=1)
             yield ProcessDetail()
         yield widgets.Footer()
+
+    def filter_successful(self: Self) -> None:
+        """Filter process nodes to show only sucessfully finished ones."""
+        table = self.query_one(widgets.DataTable)
+        qb = self.query_all()
+        current_filters: set[str] = getattr(self, "filters", set())
+        if "successful" not in current_filters:
+            qb.add_filter(
+                "process",
+                {"attributes.process_state": "finished", "attributes.exit_status": 0},
+            )
+            current_filters.add("successful")
+        else:
+            current_filters.remove("successful")
+        table.clear()
+        table.add_rows(self.rows_from_qb(qb))
+        self.filters = current_filters
 
     def action_toggle_dark(self: Self) -> None:
         """Toggle dark theme."""
@@ -275,25 +304,27 @@ class ProcessBrowser(textual.app.App):
             ("Description", "desc"),
             ("UUID", "uuid"),
         )
-        table.add_rows(
-            [
-                (
-                    i.pk,
-                    get_usable_symbol(i),
-                    bool_to_symbol(i.is_finished_ok),
-                    i.node_type.rsplit(".", 2)[-2],
-                    i.process_label,
-                    i.base.extras.get("type", ""),
-                    pendulum.instance(i.ctime).format("YYYY-MM-DD HH:mm:ss"),
-                    pendulum.instance(i.mtime).format("YYYY-MM-DD HH:mm:ss"),
-                    i.label,
-                    rich.text.Text(i.description, justify="left", overflow="fold"),
-                    i.uuid,
-                )
-                for i in self.all_processes()
-            ]
-        )
+        table.add_rows(self.rows_from_qb(self.query_all()))
         table.sort("pk", reverse=True)
+
+    def rows_from_qb(self: Self, qb: orm.QueryBuilder) -> list[tuple]:
+        """Generate DataTable rows from a querybuilder."""
+        return [
+            (
+                i.pk,
+                get_usable_symbol(i),
+                bool_to_symbol(i.is_finished_ok),
+                i.node_type.rsplit(".", 2)[-2],
+                i.process_label,
+                i.base.extras.get("type", ""),
+                pendulum.instance(i.ctime).format("YYYY-MM-DD HH:mm:ss"),
+                pendulum.instance(i.mtime).format("YYYY-MM-DD HH:mm:ss"),
+                i.label,
+                rich.text.Text(i.description, justify="left", overflow="fold"),
+                i.uuid,
+            )
+            for i in [j[0] for j in qb.all()]
+        ]
 
     def on_data_table_row_selected(
         self: Self, message: widgets.DataTable.RowHighlighted
@@ -306,15 +337,11 @@ class ProcessBrowser(textual.app.App):
         detail: ProcessDetail = self.query_one(ProcessDetail)
         detail.update(node)
 
-    def all_processes(self: Self) -> list[orm.ProcessNode]:
-        """
-        Return all process nodes.
-
-        Used to populate the initial list
-        """
+    def query_all(self: Self) -> orm.QueryBuilder:
+        """Construct a QueryBuilder for all ProcessNodes."""
         qb = orm.QueryBuilder()
-        qb.append(orm.ProcessNode)
-        return [j for i in qb.all() for j in i]
+        qb.append(orm.ProcessNode, tag="process")
+        return qb
 
     def action_sort_by_pk(self: Self) -> None:
         """Sort the table by PK."""
