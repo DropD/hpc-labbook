@@ -71,9 +71,9 @@ def add_cscs(
     )
     ucomm.report_on_subprocess(res, "add aiida-firecrest dependency")
     fcurls = {
-        "santis": "https://api.cscs.ch/cw/firecrest/v2",
-        "daint": "https://api.cscs.ch/hpc/firecrest/v2",
-        "clariden": "https://api.cscs.ch/ml/firecrest/v2",
+        "santis": "https://api.svc.cscs.ch/cw/firecrest/v2",
+        "daint": "https://api.svc.cscs.ch/hpc/firecrest/v2",
+        "clariden": "https://api.svc.cscs.ch/ml/firecrest/v2",
     }
     ucomm.report_success(
         f"prepared compute resource descriptions in {this.site_dir(SITE_DIR_NAME)}"

@@ -74,11 +74,11 @@ class ProcessDetail(widgets.Static):
     def update(self: Self, node: orm.ProcessNode) -> None:  # type: ignore[override]
         self.update_info(node)
         self.update_options(node)
+        self.update_subtasks(node)
         self.update_inputs(node)
         self.update_stdout(node)
         self.update_stderr(node)
         self.update_reports(node)
-        self.update_subtasks(node)
         super().update()
 
     def update_info(self: Self, node: orm.ProcessNode) -> None:
@@ -122,10 +122,11 @@ class ProcessDetail(widgets.Static):
         )
 
     def update_options(self: Self, node: orm.ProcessNode) -> None:
-        if not hasattr(node, "get_options"):
-            return
         options = self.query_one("#options", expect_type=widgets.Markdown)
         options_section = ["## Options"]
+        if not hasattr(node, "get_options"):
+            options.update("## Options\nNA")
+            return
         for key, value in node.get_options().items():
             if key == "prepend_text":
                 options_section.append(f"__{key}__\n: \n```bash\n{value}\n```\n")
@@ -188,15 +189,12 @@ class ProcessDetail(widgets.Static):
             "#reports", expect_type=widgets.Markdown
         )
         if node.node_type.rsplit(".", 2)[-2] == "WorkChainNode":
-            reports.update(
-                textwrap.dedent(
-                    f"""
-                ```
-                {get_workchain_report(typing.cast(orm.WorkChainNode, node), "INFO")}
-                ```
-                """
-                )
-            )
+            lines = [
+                "```",
+                get_workchain_report(typing.cast(orm.WorkChainNode, node), "INFO"),
+                "````",
+            ]
+            reports.update("\n".join(lines))
         elif node.node_type.rsplit(".", 2)[-2] == "CalcJobNode":
             reports.update(f"```\n{get_calcjob_report(node)}\n```")
         else:
@@ -207,19 +205,23 @@ class ProcessDetail(widgets.Static):
             "#subtasks", expect_type=widgets.Tree
         )
         subtasks.root.remove_children()
+        subtasks.root.label = f"{node.process_label}(self)"
 
         def add_nodes(
             some_node: orm.ProcessNode, tree_node: widgets_tree.TreeNode
         ) -> None:
             for called in some_node.called:
                 if called.called:
-                    new_node = tree_node.add(str(called))
+                    new_node = tree_node.add(
+                        f"{called.process_label}({called.pk}): {called.uuid}"
+                    )
                     add_nodes(called, new_node)
                 else:
                     tree_node.add_leaf(str(called))
 
         add_nodes(node, subtasks.root)
         subtasks.root.expand()
+        subtasks.show_root = True
 
 
 class ProcessBrowser(textual.app.App):
