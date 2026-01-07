@@ -7,37 +7,25 @@ import pathlib
 import typing
 
 from aiida import engine, orm
-from cattrs.preconf.json import make_converter
-from typing_extensions import Self
+
+from hpclb.aiida.data import jsonable
 
 if typing.TYPE_CHECKING:
     from aiida.common import folders
-    from aiida.engine.processes import ports
 
 
-__all__ = ["RemotePath", "TargetDir", "UploadFile", "create_dirs", "create_triplets"]
-
-
-CONVERTER = make_converter()
-
-
-class JsonableMixin:
-    """
-    Defines API required by 'aiida.orm.JsonableData'.
-
-    Can be used to augment dataclasses or 'attrs' classes.
-    """
-
-    def as_dict(self: Self) -> dict[str, str]:
-        return CONVERTER.unstructure(self)
-
-    @classmethod
-    def from_dict(cls: type[Self], data: dict[str, str]) -> Self:
-        return CONVERTER.structure(data, cls)
+__all__ = [
+    "RemotePath",
+    "TargetDir",
+    "UploadFile",
+    "build_uploads",
+    "create_dirs",
+    "create_triplets",
+]
 
 
 @dataclasses.dataclass
-class JobOptions(JsonableMixin):
+class JobOptions(jsonable.JsonableMixin):
     """AiiDA CalcJob options."""
 
     max_memory_kb: int = -1
@@ -46,7 +34,7 @@ class JobOptions(JsonableMixin):
 
 
 @dataclasses.dataclass
-class Job(JsonableMixin):
+class Job(jsonable.JsonableMixin):
     """Job description."""
 
     workdir: TargetDir
@@ -55,15 +43,7 @@ class Job(JsonableMixin):
 
 
 @dataclasses.dataclass
-class Graph(JsonableMixin):
-    """Job dependency graph."""
-
-    nodes: list[Job]
-    edges: list[tuple[int, int]]
-
-
-@dataclasses.dataclass
-class Future(JsonableMixin):
+class Future(jsonable.JsonableMixin):
     """Info about a running calcjob for pre-submitting dependent jobs."""
 
     jobid: str
@@ -72,7 +52,7 @@ class Future(JsonableMixin):
 
 
 @dataclasses.dataclass
-class UploadFile(JsonableMixin):
+class UploadFile(jsonable.JsonableMixin):
     """Local file which should be uploaded under the name 'name'."""
 
     source: pathlib.Path
@@ -81,7 +61,7 @@ class UploadFile(JsonableMixin):
 
 
 @dataclasses.dataclass
-class RemotePath(JsonableMixin):
+class RemotePath(jsonable.JsonableMixin):
     """Remote path which should be copied or linked."""
 
     src_path: pathlib.Path
@@ -90,7 +70,7 @@ class RemotePath(JsonableMixin):
 
 
 @dataclasses.dataclass
-class FuturePath(JsonableMixin):
+class FuturePath(jsonable.JsonableMixin):
     """Path to be linked from a future."""
 
     src_relpath: pathlib.Path
@@ -99,7 +79,7 @@ class FuturePath(JsonableMixin):
 
 
 @dataclasses.dataclass
-class TargetDir(JsonableMixin):
+class TargetDir(jsonable.JsonableMixin):
     """Subdirectory of the work dir on the cluster to be created before running."""
 
     name: str
@@ -205,7 +185,7 @@ def build_uploads(target_dir: TargetDir) -> dict[str, orm.SinglefileData]:
 
 def iter_future_links(
     target_dir: TargetDir,
-    futures_ns: ports.PortNamespace,
+    futures: dict[str, Future],
     path: pathlib.Path | None = None,
     is_root: bool = True,
 ) -> typing.Iterator[str]:
@@ -215,15 +195,13 @@ def iter_future_links(
     if not is_root:
         path /= target_dir.name
     for file in target_dir.from_future:
-        future = futures_ns.get(file.input_label, None)
+        future = futures.get(file.input_label, None)
         if future is not None:
-            yield (
-                f"ln -s {future.obj.workdir / file.src_relpath} {path / file.tgt_name}"
-            )
+            yield (f"ln -s {future.workdir / file.src_relpath} {path / file.tgt_name}")
         else:
             msg = (
                 f"The given futures namespace is missing the {file.input_label} input."
             )
             raise ValueError(msg)
     for subdir in target_dir.subdirs:
-        yield from iter_future_links(subdir, futures_ns, path, False)
+        yield from iter_future_links(subdir, futures, path, False)

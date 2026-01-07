@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import pathlib
 import typing
 from typing import Any, Callable, Iterator
@@ -81,13 +82,16 @@ def project(
 @pytest.fixture
 def minimum_graph() -> data.Graph:
     """Set up the smallest possible graph worth testing."""
-    jobts = data.JobOptions(
+    make_step = functools.partial(
+        data.jobspec.Generic,
         max_memory_kb=5000,
         resources={"num_machines": 1, "num_mpiprocs_per_machine": 1},
         withmpi=False,
     )
-    step1 = data.Job(
+    step1 = make_step(
         code="test-dummy",
+        label="step1",
+        description="Step 1",
         workdir=data.TargetDir(
             name="root",
             upload=[
@@ -100,10 +104,11 @@ def minimum_graph() -> data.Graph:
                 )
             ],
         ),
-        options=jobts,
     )
-    step2 = data.Job(
+    step2 = make_step(
         code="test-dummy",
+        label="step2",
+        description="Step 2",
         workdir=data.TargetDir(
             name="root",
             from_future=[
@@ -114,7 +119,6 @@ def minimum_graph() -> data.Graph:
                 )
             ],
         ),
-        options=jobts,
     )
     return data.Graph(nodes=[step1, step2], edges=[(0, 1)])
 

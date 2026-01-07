@@ -118,6 +118,8 @@ class Uv(CliToolMixin):
 
     def add(self: Self, args: list[str]) -> subprocess.CompletedProcess:
         """Run 'uv add' in the context of a project."""
+        if self.offline and "--frozen" not in args:
+            args = ["--frozen", *args]
         return self.run_subprocess(["add", *args])
 
     def run(

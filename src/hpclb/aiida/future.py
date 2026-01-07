@@ -14,7 +14,7 @@ from aiida.engine.processes import process
 from aiida.engine.processes.workchains import workchain
 from typing_extensions import Self
 
-from hpclb.aiida import calcjob, data
+from hpclb.aiida import data
 
 __all__ = ["AsyncWorkchain", "NotSubmittedError", "SubmittingTimedOutError"]
 
@@ -109,7 +109,7 @@ class AsyncWorkchain(workchain.WorkChain):
         """Declare inputs, outputs and outline of the workflow."""
         super().define(spec)
         spec = typing.cast(workchain.WorkChainSpec, spec)
-        spec.expose_inputs(calcjob.GenericCalculation, namespace="calc")
+        spec.input("job", valid_type=orm.JsonableData)
         spec.output("future", valid_type=orm.JsonableData)
         spec.outline(
             cls.start,  # type: ignore[arg-type] # aiida-core typing predates Self type
@@ -126,18 +126,12 @@ class AsyncWorkchain(workchain.WorkChain):
         """Start up and submit the underlying CalcJob."""
         self.ctx.wait_time = 1  # s
         self.ctx.timeout = 30  # s
-        builder: Any = calcjob.GenericCalculation.get_builder()
-        builder.metadata = self.inputs.calc.metadata
-        if "futures" in self.inputs.calc:
-            builder.metadata.options.prepend_text = "\n".join(
-                data.iter_future_links(
-                    self.inputs.calc.workdir.obj, self.inputs.calc.futures
-                )
-            )
-        self.ctx.submitted = self.submit(
+        builder: Any = self.inputs.job.obj.to_builder()
+        calcnode = self.submit(
             builder,  # type: ignore[arg-type] # aiida-core typing is incorrect
-            **self.exposed_inputs(calcjob.GenericCalculation, namespace="calc"),
-        ).uuid
+        )
+        self.inputs.job.obj.annotate(calcnode)
+        self.ctx.submitted = calcnode.uuid
         self.ctx.wait_for_submit = self.to_context(
             monitor=self.submit(
                 aiida_pythonjob.PyFunction,

@@ -8,8 +8,8 @@ from typing import Callable
 
 import pytest
 
-from hpclb import jobspec
 from hpclb.aiida import data
+from hpclb.aiida.data import jobspec
 
 if typing.TYPE_CHECKING:
     from aiida.orm import Code, InstalledCode

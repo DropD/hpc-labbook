@@ -10,7 +10,7 @@ from cattrs.preconf.pyyaml import make_converter
 from typing_extensions import Self
 
 from hpclb import cli_tools as ct
-from hpclb import jobspec
+from hpclb.aiida.data import jobspec
 
 __all__ = ["Auth", "Config", "Machine", "Project", "Site"]
 

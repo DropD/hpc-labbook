@@ -12,7 +12,7 @@ from aiida.engine.processes import exit_code
 from aiida.engine.processes.workchains import workchain
 from typing_extensions import Self
 
-from hpclb.aiida import data, future
+from hpclb.aiida import future
 
 __all__ = ["GraphWorkchain"]
 
@@ -97,25 +97,14 @@ class GraphWorkchain(workchain.WorkChain):
                     return self.exit_codes.JOB_FAILED
             node = graph.nodes[node_idx]
             builder: Any = future.AsyncWorkchain.get_builder()
-            builder.calc.code = orm.load_code(node.code)
-            builder.calc.workdir = orm.JsonableData(node.workdir)
-            builder.calc.uploaded = data.build_uploads(node.workdir)
-            if dependencies:
-                builder.calc.futures = {
-                    f"dep_{i}": d.outputs.future for i, d in dependencies.items()
-                }
-            builder.calc.metadata.options.withmpi = node.options.withmpi
-            if node.options.resources:
-                builder.calc.metadata.options.resources = node.options.resources
-            if node.options.max_memory_kb >= 0:
-                builder.calc.metadata.options.max_memory_kb = node.options.max_memory_kb
-            if dependencies:
-                dep_string = ":".join(
-                    d.outputs.future.obj.jobid for d in dependencies.values()
+            for d in dependencies.values():
+                self.report(
+                    *self.format_report("found future: %s", d.outputs.future.obj)
                 )
-                builder.calc.metadata.options.custom_scheduler_commands = (
-                    f"#SBATCH -d afterok:{dep_string}"
-                )
+            node.futures = {
+                f"dep_{i}": d.outputs.future.obj for i, d in dependencies.items()
+            }
+            builder.job = orm.JsonableData(node)
 
             self.to_context(**{f"node_async.{node_idx}": self.submit(builder)})  # type: ignore[arg-type] # aiida_core typing is wrong
         self.ctx.iteration += 1

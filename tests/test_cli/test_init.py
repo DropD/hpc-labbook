@@ -19,7 +19,7 @@ def test_basic_init(tmp_path: pathlib.Path, runner: CliRunner) -> None:
         cli.app, ["init", "--name", "basic_init", str(project_path), "--offline"]
     )
 
-    assert res.exit_code == 0
+    assert res.exit_code == 0, res.output
     created = project.Project(project_path)
 
     assert created.config_file == project_path / "hpclb.yaml"
@@ -37,7 +37,7 @@ def test_init_existing_empty(tmp_path: pathlib.Path, runner: CliRunner) -> None:
     res = runner.invoke(
         cli.app, ["init", "--name", "empty_init", str(project_path), "--offline"]
     )
-    assert res.exit_code == 0
+    assert res.exit_code == 0, res.output
 
 
 def test_init_existing_nonempty(tmp_path: pathlib.Path, runner: CliRunner) -> None:
