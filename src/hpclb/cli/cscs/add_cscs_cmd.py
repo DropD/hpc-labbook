@@ -110,7 +110,7 @@ def add_cscs(
                 {
                     "compute_resource": vcluster,
                     "temp_directory": str(work_path / "hpclb" / "f7temp"),
-                    "token_uri": "https://auth.cscs.ch/auth/realms/cscs/protocol/openid-connect/token",
+                    "token_uri": "https://auth.cscs.ch/auth/realms/firecrest-clients/protocol/openid-connect/token",
                     "url": fcurls[vcluster],
                 }
             )
