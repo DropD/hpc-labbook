@@ -14,6 +14,7 @@ import textual.app
 import textual.screen
 from aiida import orm
 from aiida.cmdline.utils.common import get_calcjob_report, get_workchain_report
+from plumpy import ProcessState
 from textual import containers, widgets
 from textual.widgets import tree as widgets_tree
 from typing_extensions import Self
@@ -27,6 +28,24 @@ def bool_to_symbol(value: bool | None) -> str:
             return "✅"
         case False:
             return "❌"
+        case _:
+            return "?"
+
+
+def state_to_symbol(value: ProcessState | None) -> str:
+    match value:
+        case ProcessState.CREATED:
+            return "🏗"
+        case ProcessState.EXCEPTED:
+            return "💥"
+        case ProcessState.WAITING:
+            return "⏳"
+        case ProcessState.KILLED:
+            return "🪓"
+        case ProcessState.FINISHED:
+            return "✅"
+        case ProcessState.RUNNING:
+            return "🚀"
         case _:
             return "?"
 
@@ -86,6 +105,16 @@ class ProcessDetail(widgets.Static):
         workdir = "NA"
         if get_workdir := getattr(node, "get_remote_workdir", None):
             workdir = get_workdir()
+        state = node.process_state.value if node.process_state else "unknown"
+        if node.process_state is ProcessState.WAITING:
+            state = "Waiting on Daemon"
+            state_sched = node.get_scheduler_state()
+            state_calc = node.get_state()
+            last_checked = node.get_scheduler_lastchecktime()
+            if state_sched is None:
+                state = "unknown" if state_calc is None else state_calc()
+            else:
+                state = f"{state_sched}, checked at {last_checked}"
         info.update(
             textwrap.dedent(
                 f"""
@@ -95,7 +124,7 @@ class ProcessDetail(widgets.Static):
             : {node.pk}
 
             __state__
-            : {node.process_state}
+            : {state}
 
             __class__
             : {node.process_label}
@@ -233,6 +262,7 @@ class ProcessBrowser(textual.app.App):
         ("l", "sort_by_label", "Sort by label"),
         ("u", "sort_by_usable", "Sort by usability"),
         ("t", "sort_by_type", "Sort by type"),
+        ("r", "reload", "Reload"),
         ("q", "quit", "Quit"),
     ]
 
@@ -254,6 +284,21 @@ class ProcessBrowser(textual.app.App):
             "Filter: Successful",
             "Filter processes to show only sucessfully completed ones.",
             self.filter_successful,
+        )
+        yield textual.app.SystemCommand(
+            "Reload",
+            "Reload processes from the database.",
+            self.action_reload,
+        )
+        yield textual.app.SystemCommand(
+            "Set Usable",
+            "Set a process as usable",
+            self.action_set_usable,
+        )
+        yield textual.app.SystemCommand(
+            "Set Unusable",
+            "Set a process as unusable",
+            self.action_set_unusable,
         )
 
     def compose(self: Self) -> textual.app.ComposeResult:
@@ -288,8 +333,12 @@ class ProcessBrowser(textual.app.App):
         )
 
     def on_mount(self: Self) -> None:
-        """Populate the data table."""
-        aiida.load_profile()
+        """Initialize the UI with data."""
+        self.initialize_table()
+        self.populate_table()
+
+    def initialize_table(self: Self) -> None:
+        """Set table columns."""
         table = self.query_one(widgets.DataTable)
         table.cursor_type = "row"
         table.zebra_stripes = True
@@ -306,6 +355,11 @@ class ProcessBrowser(textual.app.App):
             ("Description", "desc"),
             ("UUID", "uuid"),
         )
+
+    def populate_table(self: Self) -> None:
+        """Populate the data table."""
+        aiida.load_profile()
+        table = self.query_one(widgets.DataTable)
         table.add_rows(self.rows_from_qb(self.query_all()))
         table.sort("pk", reverse=True)
 
@@ -315,7 +369,7 @@ class ProcessBrowser(textual.app.App):
             (
                 i.pk,
                 get_usable_symbol(i),
-                bool_to_symbol(i.is_finished_ok),
+                state_to_symbol(i.process_state),
                 i.node_type.rsplit(".", 2)[-2],
                 i.process_label,
                 i.base.extras.get("type", ""),
@@ -365,3 +419,34 @@ class ProcessBrowser(textual.app.App):
         """Sort the table by 'type' extra."""
         table = self.query_one(widgets.DataTable)
         table.sort("type", "pk", key=lambda d: (d[0] if d[0] else "Ω", -d[1]))
+
+    def reload_table(self: Self) -> None:
+        """Reload the table data."""
+        table = self.query_one(widgets.DataTable)
+        table.clear()
+        self.populate_table()
+
+    def action_reload(self: Self) -> None:
+        """Reload the table data."""
+        self.reload_table()
+        table = self.query_one(widgets.DataTable)
+        detail = self.query_one(ProcessDetail)
+        row = table.get_row_at(table.cursor_row)
+        node: orm.ProcessNode = typing.cast(orm.ProcessNode, orm.load_node(pk=row[0]))
+        detail.update(node)
+
+    def action_set_usable(self: Self) -> None:
+        """Set the highlighted row to usable and reload the table."""
+        table = self.query_one(widgets.DataTable)
+        row = table.get_row_at(table.cursor_row)
+        node: orm.ProcessNode = typing.cast(orm.ProcessNode, orm.load_node(pk=row[0]))
+        node.base.extras.set("usable", True)
+        self.reload_table()
+
+    def action_set_unusable(self: Self) -> None:
+        """Set the highlighted row to unusable and reload the table."""
+        table = self.query_one(widgets.DataTable)
+        row = table.get_row_at(table.cursor_row)
+        node: orm.ProcessNode = typing.cast(orm.ProcessNode, orm.load_node(pk=row[0]))
+        node.base.extras.set("usable", False)
+        self.reload_table()
