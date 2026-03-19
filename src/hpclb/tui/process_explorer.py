@@ -8,56 +8,20 @@ import textwrap
 import typing
 
 import aiida
-import pendulum
-import rich.markdown
-import rich.text
 import textual.app
+import textual.command
 import textual.coordinate
 import textual.screen
 from aiida import orm
 from aiida.cmdline.utils.common import get_calcjob_report, get_workchain_report
-from aiida.schedulers import JobState
 from plumpy import ProcessState
 from textual import containers, widgets
 from textual.widgets import tree as widgets_tree
 from typing_extensions import Self
 
+from hpclb.tui import process_table
+
 __all__ = ["ProcessBrowser"]
-
-
-def bool_to_symbol(value: bool | None) -> str:
-    match value:
-        case True:
-            return "✅"
-        case False:
-            return "❌"
-        case _:
-            return "?"
-
-
-def state_to_symbol(
-    proc_state: ProcessState | None, sched_state: JobState | None
-) -> str:
-    match (proc_state, sched_state):
-        case (ProcessState.CREATED, _):
-            return "🏗"
-        case (ProcessState.EXCEPTED, _):
-            return "💥"
-        case (ProcessState.RUNNING, _) | (ProcessState.WAITING, JobState.RUNNING):
-            return "🚀"
-        case (ProcessState.WAITING, _):
-            return "⏳"
-        case (ProcessState.KILLED, _):
-            return "🪓"
-        case (ProcessState.FINISHED, _):
-            return "✅"
-        case _:
-            return "?"
-
-
-def get_usable_symbol(node: orm.ProcessNode) -> str:
-    """Get symbol to represent the 'usable' extra."""
-    return bool_to_symbol(node.base.extras.get("usable", None))
 
 
 class ProcessDetail(widgets.Static):
@@ -258,6 +222,48 @@ class ProcessDetail(widgets.Static):
         subtasks.show_root = True
 
 
+class HitKwargs(typing.TypedDict):
+    command: typing.Callable[[], None]
+    help: str
+
+
+class ProcessListCommands(textual.command.Provider):
+    """A command provider for operations on the whole process list."""
+
+    async def search(self: Self, query: str) -> textual.command.Hits:
+        """Search for List operations."""
+        matcher = self.matcher(query)
+        if not isinstance(self.app, ProcessBrowser):
+            msg = "ProcessListCommands only works on ProcessBrowser."
+            raise TypeError(msg)
+
+        commands: dict[str, HitKwargs] = {
+            "sort by PK": {
+                "command": self.app.action_sort_by_pk,
+                "help": "Toggle Sorting Process List by PK (asc/desc)",
+            },
+            "sort by label": {
+                "command": self.app.action_sort_by_label,
+                "help": "Toggle Sorting Process List by Label (asc/desc)",
+            },
+            "sort by usability": {
+                "command": self.app.action_sort_by_usable,
+                "help": "Toggle Sorting Process List by Usability Tag (asc/desc)",
+            },
+            "sort by type": {
+                "command": self.app.action_sort_by_type,
+                "help": "Toggle Sorting Process List by Type (asc/desc)",
+            },
+        }
+
+        for command, kwargs in commands.items():
+            score = matcher.match(command)
+            if score > 0:
+                yield textual.command.Hit(
+                    score=score, match_display=matcher.highlight(command), **kwargs
+                )
+
+
 class ProcessBrowser(textual.app.App):
     """A textual app for browsing AiiDA processes."""
 
@@ -271,6 +277,8 @@ class ProcessBrowser(textual.app.App):
         ("k", "kill", "Kill"),
         ("q", "quit", "Quit"),
     ]
+
+    COMMANDS: typing.ClassVar = textual.app.App.COMMANDS | {ProcessListCommands}
 
     CSS: typing.ClassVar = """
     DataTable {
@@ -316,13 +324,13 @@ class ProcessBrowser(textual.app.App):
         """Create the app's child widgets."""
         yield widgets.Header()
         with containers.Horizontal():
-            yield widgets.DataTable(fixed_columns=1)
+            yield process_table.ProcessTable()
             yield ProcessDetail()
         yield widgets.Footer()
 
     def filter_successful(self: Self) -> None:
         """Filter process nodes to show only sucessfully finished ones."""
-        table = self.query_one(widgets.DataTable)
+        table = self.query_one(process_table.ProcessTable)
         qb = self.query_all()
         current_filters: set[str] = getattr(self, "filters", set())
         if "successful" not in current_filters:
@@ -334,7 +342,7 @@ class ProcessBrowser(textual.app.App):
         else:
             current_filters.remove("successful")
         table.clear()
-        table.add_rows(self.rows_from_qb(qb))
+        table.populate((i[0] for i in qb.all()))
         self.filters = current_filters
 
     def action_toggle_dark(self: Self) -> None:
@@ -345,53 +353,14 @@ class ProcessBrowser(textual.app.App):
 
     def on_mount(self: Self) -> None:
         """Initialize the UI with data."""
-        self.initialize_table()
         self.populate_table()
-
-    def initialize_table(self: Self) -> None:
-        """Set table columns."""
-        table = self.query_one(widgets.DataTable)
-        table.cursor_type = "row"
-        table.zebra_stripes = True
-        table.add_columns(
-            ("PK", "pk"),
-            ("usable", "usable"),
-            ("ok", "ok"),
-            ("ptype", "ptype"),
-            ("pclass", "pclass"),
-            ("type", "type"),
-            ("created", "ctime"),
-            ("modified", "mtime"),
-            ("Label", "label"),
-            ("Description", "desc"),
-            ("UUID", "uuid"),
-        )
 
     def populate_table(self: Self) -> None:
         """Populate the data table."""
         aiida.load_profile()
-        table = self.query_one(widgets.DataTable)
-        table.add_rows(self.rows_from_qb(self.query_all()))
-        table.sort("pk", reverse=True)
-
-    def rows_from_qb(self: Self, qb: orm.QueryBuilder) -> list[tuple]:
-        """Generate DataTable rows from a querybuilder."""
-        return [
-            (
-                i.pk,
-                get_usable_symbol(i),
-                state_to_symbol(i.process_state, i.get_scheduler_state()),
-                i.node_type.rsplit(".", 2)[-2],
-                i.process_label,
-                i.base.extras.get("type", ""),
-                pendulum.instance(i.ctime).format("YYYY-MM-DD HH:mm:ss"),
-                pendulum.instance(i.mtime).format("YYYY-MM-DD HH:mm:ss"),
-                i.label,
-                rich.text.Text(i.description, justify="left", overflow="fold"),
-                i.uuid,
-            )
-            for i in [j[0] for j in qb.all()]
-        ]
+        table = self.query_one(process_table.ProcessTable)
+        table.populate((i[0] for i in self.query_all().all()))
+        table.sorter.sort()
 
     def on_data_table_row_selected(
         self: Self, message: widgets.DataTable.RowHighlighted
@@ -410,35 +379,34 @@ class ProcessBrowser(textual.app.App):
 
     def action_sort_by_pk(self: Self) -> None:
         """Sort the table by PK."""
-        table = self.query_one(widgets.DataTable)
-        table.sort("pk", reverse=True)
+        table = self.query_one(process_table.ProcessTable)
+        table.sorter.toggle_sort(sorting=process_table.ProcessSorting.PK)
 
     def action_sort_by_label(self: Self) -> None:
         """Sort the table by label."""
-        table = self.query_one(widgets.DataTable)
-        table.sort("label", "pk", key=lambda d: (d[0], -d[1]))
+        table = self.query_one(process_table.ProcessTable)
+        table.sorter.toggle_sort(sorting=process_table.ProcessSorting.LABEL)
 
     def action_sort_by_usable(self: Self) -> None:
         """Sort the table by 'usable' extra."""
-        table = self.query_one(widgets.DataTable)
-        usability_level = {"✅": 0, "❌": 1, "?": 2}
-        table.sort("usable", "pk", key=lambda d: (usability_level[d[0]], -d[1]))
+        table = self.query_one(process_table.ProcessTable)
+        table.sorter.toggle_sort(sorting=process_table.ProcessSorting.USABILITY)
 
     def action_sort_by_type(self: Self) -> None:
         """Sort the table by 'type' extra."""
-        table = self.query_one(widgets.DataTable)
-        table.sort("type", "pk", key=lambda d: (d[0] if d[0] else "Ω", -d[1]))
+        table = self.query_one(process_table.ProcessTable)
+        table.sorter.toggle_sort(sorting=process_table.ProcessSorting.TYPE)
 
     def reload_table(self: Self) -> None:
         """Reload the table data."""
-        table = self.query_one(widgets.DataTable)
+        table = self.query_one(process_table.ProcessTable)
         table.clear()
         self.populate_table()
 
     def action_reload(self: Self) -> None:
         """Reload the table data."""
         self.reload_table()
-        table = self.query_one(widgets.DataTable)
+        table = self.query_one(process_table.ProcessTable)
         detail = self.query_one(ProcessDetail)
         row = table.get_row_at(table.cursor_row)
         node: orm.ProcessNode = typing.cast(orm.ProcessNode, orm.load_node(pk=row[0]))
@@ -448,7 +416,7 @@ class ProcessBrowser(textual.app.App):
         """Kill the selected process."""
         from aiida.engine.processes import control
 
-        table = self.query_one(widgets.DataTable)
+        table = self.query_one(process_table.ProcessTable)
         row = table.get_row_at(table.cursor_row)
         node: orm.ProcessNode = typing.cast(orm.ProcessNode, orm.load_node(pk=row[0]))
         table.update_cell_at(
@@ -463,7 +431,7 @@ class ProcessBrowser(textual.app.App):
 
     def action_set_usable(self: Self) -> None:
         """Set the highlighted row to usable and reload the table."""
-        table = self.query_one(widgets.DataTable)
+        table = self.query_one(process_table.ProcessTable)
         row = table.get_row_at(table.cursor_row)
         node: orm.ProcessNode = typing.cast(orm.ProcessNode, orm.load_node(pk=row[0]))
         node.base.extras.set("usable", True)
@@ -471,7 +439,7 @@ class ProcessBrowser(textual.app.App):
 
     def action_set_unusable(self: Self) -> None:
         """Set the highlighted row to unusable and reload the table."""
-        table = self.query_one(widgets.DataTable)
+        table = self.query_one(process_table.ProcessTable)
         row = table.get_row_at(table.cursor_row)
         node: orm.ProcessNode = typing.cast(orm.ProcessNode, orm.load_node(pk=row[0]))
         node.base.extras.set("usable", False)
