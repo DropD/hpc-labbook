@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import pprint
 import textwrap
 import typing
@@ -11,9 +12,11 @@ import pendulum
 import rich.markdown
 import rich.text
 import textual.app
+import textual.coordinate
 import textual.screen
 from aiida import orm
 from aiida.cmdline.utils.common import get_calcjob_report, get_workchain_report
+from aiida.schedulers import JobState
 from plumpy import ProcessState
 from textual import containers, widgets
 from textual.widgets import tree as widgets_tree
@@ -32,20 +35,22 @@ def bool_to_symbol(value: bool | None) -> str:
             return "?"
 
 
-def state_to_symbol(value: ProcessState | None) -> str:
-    match value:
-        case ProcessState.CREATED:
+def state_to_symbol(
+    proc_state: ProcessState | None, sched_state: JobState | None
+) -> str:
+    match (proc_state, sched_state):
+        case (ProcessState.CREATED, _):
             return "🏗"
-        case ProcessState.EXCEPTED:
+        case (ProcessState.EXCEPTED, _):
             return "💥"
-        case ProcessState.WAITING:
-            return "⏳"
-        case ProcessState.KILLED:
-            return "🪓"
-        case ProcessState.FINISHED:
-            return "✅"
-        case ProcessState.RUNNING:
+        case (ProcessState.RUNNING, _) | (ProcessState.WAITING, JobState.RUNNING):
             return "🚀"
+        case (ProcessState.WAITING, _):
+            return "⏳"
+        case (ProcessState.KILLED, _):
+            return "🪓"
+        case (ProcessState.FINISHED, _):
+            return "✅"
         case _:
             return "?"
 
@@ -263,6 +268,7 @@ class ProcessBrowser(textual.app.App):
         ("u", "sort_by_usable", "Sort by usability"),
         ("t", "sort_by_type", "Sort by type"),
         ("r", "reload", "Reload"),
+        ("k", "kill", "Kill"),
         ("q", "quit", "Quit"),
     ]
 
@@ -289,6 +295,11 @@ class ProcessBrowser(textual.app.App):
             "Reload",
             "Reload processes from the database.",
             self.action_reload,
+        )
+        yield textual.app.SystemCommand(
+            "Kill selected",
+            "Kill selected process.",
+            self.action_kill,
         )
         yield textual.app.SystemCommand(
             "Set Usable",
@@ -369,7 +380,7 @@ class ProcessBrowser(textual.app.App):
             (
                 i.pk,
                 get_usable_symbol(i),
-                state_to_symbol(i.process_state),
+                state_to_symbol(i.process_state, i.get_scheduler_state()),
                 i.node_type.rsplit(".", 2)[-2],
                 i.process_label,
                 i.base.extras.get("type", ""),
@@ -386,8 +397,6 @@ class ProcessBrowser(textual.app.App):
         self: Self, message: widgets.DataTable.RowHighlighted
     ) -> None:
         """Show details of the selected process in a markdown viewer."""
-        # TODO(ricoh): issue #894bfe90c3a7bf184ded782ffac9cf440be9a4b3
-        # replace with custom widget, generating markdown is tedious:
         row = message.data_table.get_row(message.row_key)
         node: orm.ProcessNode = typing.cast(orm.ProcessNode, orm.load_node(pk=row[0]))
         detail: ProcessDetail = self.query_one(ProcessDetail)
@@ -434,6 +443,23 @@ class ProcessBrowser(textual.app.App):
         row = table.get_row_at(table.cursor_row)
         node: orm.ProcessNode = typing.cast(orm.ProcessNode, orm.load_node(pk=row[0]))
         detail.update(node)
+
+    def action_kill(self: Self) -> None:
+        """Kill the selected process."""
+        from aiida.engine.processes import control
+
+        table = self.query_one(widgets.DataTable)
+        row = table.get_row_at(table.cursor_row)
+        node: orm.ProcessNode = typing.cast(orm.ProcessNode, orm.load_node(pk=row[0]))
+        table.update_cell_at(
+            textual.coordinate.Coordinate(
+                table.cursor_row, table.get_column_index("pk")
+            ),
+            value="🔄",
+        )
+        with contextlib.suppress(control.ProcessTimeoutException):
+            control.kill_processes([node])
+        self.action_reload()
 
     def action_set_usable(self: Self) -> None:
         """Set the highlighted row to usable and reload the table."""

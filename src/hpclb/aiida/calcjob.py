@@ -99,6 +99,6 @@ class GenericParser(parser.Parser):
                 missing_strict.append(key)
         self.out("missing.download_required", orm.List(missing_strict))
         if missing_strict:
-            return self.node.exit_codes.MISSING_OUTPUT_FILE
+            return self.exit_codes.MISSING_OUTPUT_FILE
 
         return engine.ExitCode(0)
