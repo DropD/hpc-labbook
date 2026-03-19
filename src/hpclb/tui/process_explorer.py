@@ -261,7 +261,7 @@ class ProcessDetail(widgets.Static):
 class ProcessBrowser(textual.app.App):
     """A textual app for browsing AiiDA processes."""
 
-    BINDINGS: typing.ClassVar = [
+    BINDINGS: typing.ClassVar = [  # type: ignore[assignment] # zuban false positive
         ("d", "toggle_dark", "Toggle dark mode"),
         ("p", "sort_by_pk", "Sort by PK"),
         ("l", "sort_by_label", "Sort by label"),
@@ -339,7 +339,7 @@ class ProcessBrowser(textual.app.App):
 
     def action_toggle_dark(self: Self) -> None:
         """Toggle dark theme."""
-        self.theme = (
+        self.theme: str = (
             "textual-dark" if self.theme == "textual-light" else "textual-light"
         )
 

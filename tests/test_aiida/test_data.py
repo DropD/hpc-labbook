@@ -4,6 +4,7 @@ import pathlib
 import typing
 
 import aiida.common.folders
+import aiida.engine
 import aiida.orm
 
 import hpclb
@@ -25,7 +26,9 @@ def test_create_triplets(
         "num_mpiprocs_per_machine": 1,
         "num_cores_per_mpiproc": 1,
     }
-    calc = hpclb.aiida.calcjob.GenericCalculation(dict(builder))
+    calc = typing.cast(
+        aiida.engine.CalcJob, hpclb.aiida.calcjob.GenericCalculation(dict(builder))
+    )
     upload, copy, link = hpclb.aiida.data.create_triplets(
         typing.cast(hpclb.aiida.data.TargetDir, example_targetdir.obj), calc
     )

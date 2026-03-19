@@ -9,11 +9,12 @@ import typer
 from typing_extensions import Annotated
 
 from hpclb import project
-from hpclb.cli import app, params
+from hpclb.cli import params
+from hpclb.cli.app import app
 from hpclb.tui import ProcessBrowser
 
 
-@app.app.command("jobs")
+@app.command("jobs")
 def browse_jobs(
     path: Annotated[
         pathlib.Path,

@@ -45,7 +45,7 @@ class GraphWorkchain(workchain.WorkChain):
         """Set up and plan execution order."""
         self.report("starting graph execution")
         graph = self.inputs.graph.obj
-        dag = nx.DiGraph(graph.edges)
+        dag: nx.DiGraph = nx.DiGraph(graph.edges)
         if not nx.is_directed_acyclic_graph(dag):
             return self.exit_codes.NOT_A_DAG
         self.ctx.iteration = 0
@@ -82,7 +82,7 @@ class GraphWorkchain(workchain.WorkChain):
     def submit_front(self) -> None | exit_code.ExitCode:
         """Submit the next generation of jobs."""
         graph = self.inputs.graph.obj
-        dag = nx.DiGraph(graph.edges)
+        dag: nx.DiGraph = nx.DiGraph(graph.edges)
         self.report(
             *self.format_report(
                 "submitting %s", str(self.ctx.front[self.ctx.iteration])

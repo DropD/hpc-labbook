@@ -6,12 +6,12 @@ requires = ["hatchling"]
 dev = [
   {include-group = "test"},
   "ipython>=9.5.0",
-  "mypy>=1.17.1",
   "pre-commit>=4.3.0",
   "ruff>=0.12.11",
   "types-networkx>=3.5.0.20250918",
   "types-pyyaml>=6.0.12.20250822",
-  "aiida-pythonjob>=0.4.5"
+  "aiida-pythonjob>=0.4.5",
+  "zuban>=0.6.2"
 ]
 test = [
   "pytest>=8.4.1",
